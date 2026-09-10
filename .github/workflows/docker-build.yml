@@ -106,6 +106,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          # 阿里云 ACR 兼容：用 Docker manifest 格式而非 OCI（ACR 不认 oci.empty manifest）
+          provenance: false
+          sbom: false
           build-args: |
             EVALSCOPE_VERSION=${{ steps.args.outputs.evalscope_version }}
             PREFETCH_DATASETS=${{ steps.args.outputs.prefetch_datasets }}
