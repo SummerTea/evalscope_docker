@@ -86,8 +86,13 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --python /usr/local/bin/python \
     "evalscope[service,ifeval,bfcl]==${EVALSCOPE_VERSION}"
-# TODO(next): 预下载 NLTK punkt_tab 词表数据到 ~/nltk_data（ifeval 评测依赖句子切分；
-# 内网离线必需，构建期 GitHub Actions 外网可达时灌入，走 evalscope.utils.resource_utils.check_nltk_data mirror）
+
+# 预下载 NLTK 词表数据（ifeval 评测依赖 punkt_tab 句子切分；内网无法联网下载，
+# 必须在构建期（GitHub Actions 外网可达）灌入镜像 ~/nltk_data，运行时离线命中）
+# 走 EvalScope 自带 mirror（modelscope-open OSS，含 sha256 校验），
+# 下载路径 ~/nltk_data 与运行时 check_nltk_data 查找路径一致
+RUN python -c "from evalscope.utils.resource_utils import check_nltk_data; check_nltk_data('punkt_tab')" \
+    && python -c "import nltk; print('nltk data OK:', nltk.data.find('tokenizers/punkt_tab'))"
 
 # 安装 τ²-bench（agent 评测：airline/retail/telecom 客服域）
 # 与 EvalScope tau2_bench adapter 要求一致（sierra-research/tau2-bench@v0.2.0）
