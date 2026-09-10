@@ -50,6 +50,9 @@ COPY scripts/prefetch_datasets.py /opt/prefetch_datasets.py
 RUN uv pip install --system --python /usr/local/bin/python \
         "huggingface_hub" "modelscope[datasets]"
 
+# 无论是否预取都确保目录存在（PREFETCH_DATASETS=false 时 COPY 步骤仍需源目录）
+RUN mkdir -p /data/datasets_cache
+
 RUN if [ "${PREFETCH_DATASETS}" = "true" ]; then \
         HF_ENDPOINT="${HF_ENDPOINT_BUILD}" MODELSCOPE_CACHE=/data/datasets_cache \
             python /opt/prefetch_datasets.py \
