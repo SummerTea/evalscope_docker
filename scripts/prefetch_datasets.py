@@ -21,6 +21,7 @@
 import argparse
 import os
 import sys
+from typing import Optional
 
 # 内置测试集：EvalScope benchmark 名 -> (MS dataset_id, 说明)
 # 覆盖维度：数学/中文/知识/推理/常识/指令/代码/函数调用（除多模态外全维度）
@@ -56,6 +57,66 @@ CORE_BENCHMARKS = {
     'bfcl_v3': ('AI-ModelScope/bfcl_v3', 'BFCL-v3 函数调用（17 子集）'),
 }
 
+# benchmark 名 -> 子集列表（取自 EvalScope adapter 的 subset_list，与运行时 subset_name 一致）。
+# 缺省（None）= 不传 subset_name（单子集/default 数据集）。
+# 关键（实测踩坑）：MsDataset.load 不传 subset_name 只缓存 default 子集，
+# 多子集数据集（ceval 52/cmmlu 67/bbh 27/agieval 21/arc 2/competition_math 5/
+# mmlu_pro 14/bfcl_v3 17）若不全量预取子集，运行时按 subset 加载必然 miss 联网。
+BENCHMARK_SUBSETS = {
+    'ceval': ['computer_network', 'operating_system', 'computer_architecture', 'college_programming',
+              'college_physics', 'college_chemistry', 'advanced_mathematics', 'probability_and_statistics',
+              'discrete_mathematics', 'electrical_engineer', 'metrology_engineer', 'high_school_mathematics',
+              'high_school_physics', 'high_school_chemistry', 'high_school_biology', 'middle_school_mathematics',
+              'middle_school_biology', 'middle_school_physics', 'middle_school_chemistry', 'veterinary_medicine',
+              'college_economics', 'business_administration', 'marxism', 'mao_zedong_thought',
+              'education_science', 'teacher_qualification', 'high_school_politics', 'high_school_geography',
+              'middle_school_politics', 'middle_school_geography', 'modern_chinese_history',
+              'ideological_and_moral_cultivation', 'logic', 'law', 'chinese_language_and_literature',
+              'art_studies', 'professional_tour_guide', 'legal_professional', 'high_school_chinese',
+              'high_school_history', 'middle_school_history', 'civil_servant', 'sports_science',
+              'plant_protection', 'basic_medicine', 'clinical_medicine', 'urban_and_rural_planner',
+              'accountant', 'fire_engineer', 'environmental_impact_assessment_engineer', 'tax_accountant',
+              'physician'],
+    'cmmlu': ['agronomy', 'anatomy', 'ancient_chinese', 'arts', 'astronomy', 'business_ethics',
+              'chinese_civil_service_exam', 'chinese_driving_rule', 'chinese_food_culture',
+              'chinese_foreign_policy', 'chinese_history', 'chinese_literature', 'chinese_teacher_qualification',
+              'clinical_knowledge', 'college_actuarial_science', 'college_education', 'college_engineering_hydrology',
+              'college_law', 'college_mathematics', 'college_medical_statistics', 'college_medicine',
+              'computer_science', 'computer_security', 'conceptual_physics',
+              'construction_project_management', 'economics', 'education', 'electrical_engineering',
+              'elementary_chinese', 'elementary_commonsense', 'elementary_information_and_technology',
+              'elementary_mathematics', 'ethnology', 'food_science', 'genetics', 'global_facts',
+              'high_school_biology', 'high_school_chemistry', 'high_school_geography', 'high_school_mathematics',
+              'high_school_physics', 'high_school_politics', 'human_sexuality', 'international_law',
+              'journalism', 'jurisprudence', 'legal_and_moral_basis', 'logical', 'machine_learning',
+              'management', 'marketing', 'marxist_theory', 'modern_chinese', 'nutrition',
+              'philosophy', 'professional_accounting', 'professional_law', 'professional_medicine',
+              'professional_psychology', 'public_relations', 'security_study', 'sociology', 'sports_science',
+              'traditional_chinese_medicine', 'virology', 'world_history', 'world_religions'],
+    'mmlu_pro': ['computer science', 'math', 'chemistry', 'engineering', 'law', 'biology', 'health',
+                 'physics', 'business', 'philosophy', 'economics', 'other', 'psychology', 'history'],
+    'bbh': ['temporal_sequences', 'disambiguation_qa', 'date_understanding',
+            'tracking_shuffled_objects_three_objects', 'penguins_in_a_table', 'geometric_shapes', 'snarks',
+            'ruin_names', 'tracking_shuffled_objects_seven_objects', 'tracking_shuffled_objects_five_objects',
+            'logical_deduction_three_objects', 'hyperbaton', 'logical_deduction_five_objects',
+            'logical_deduction_seven_objects', 'movie_recommendation', 'salient_translation_error_detection',
+            'reasoning_about_colored_objects', 'multistep_arithmetic_two', 'navigate', 'dyck_languages',
+            'formal_fallacies', 'causal_judgement', 'web_of_lies', 'word_sorting', 'sports_understanding',
+            'boolean_expressions', 'object_counting'],
+    'arc': ['ARC-Easy', 'ARC-Challenge'],
+    'agieval': ['aqua-rat', 'logiqa-en', 'lsat-ar', 'lsat-lr', 'lsat-rc', 'sat-math', 'sat-en',
+                'sat-en-without-passage', 'gaokao-english', 'logiqa-zh', 'gaokao-chinese',
+                'gaokao-geography', 'gaokao-history', 'gaokao-biology', 'gaokao-chemistry',
+                'gaokao-physics', 'gaokao-mathqa', 'jec-qa-kd', 'jec-qa-ca', 'math', 'gaokao-mathcloze'],
+    'competition_math': ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'],
+    'bfcl_v3': ['simple', 'multiple', 'parallel', 'parallel_multiple', 'java', 'javascript',
+                'live_simple', 'live_multiple', 'live_parallel', 'live_parallel_multiple', 'irrelevance',
+                'live_relevance', 'live_irrelevance', 'multi_turn_base', 'multi_turn_miss_func',
+                'multi_turn_miss_param', 'multi_turn_long_context'],
+    'truthful_qa': ['multiple_choice'],
+    'humaneval': ['openai_humaneval'],
+}
+
 # MS 无时的 HF 兜底映射（EvalScope dataset_id -> HF repo）
 # 注意：已弃用——HF 兜底落盘 HF_HOME 布局，与 EvalScope 运行时 MODELSCOPE_CACHE 布局不兼容，
 # 必然 miss 联网重下（详见 hf_download 弃用说明）。保留映射仅作参考，不再使用。
@@ -76,21 +137,27 @@ MS_TO_HF = {
 }
 
 
-def ms_download(dataset_id: str, cache_dir: str) -> bool:
+def ms_download(dataset_id: str, cache_dir: str, subsets: Optional[list] = None) -> bool:
     """ModelScope 预下载并缓存数据集（与 EvalScope 运行时 MsDataset.load 同路径，命中即离线）。
 
     关键（实测验证）：
-    - EvalScope 的 load_dataset_from_hub 调用 MsDataset.load(dataset_name=id)，不传 cache_dir，
-      走 MODELSCOPE_CACHE 环境变量默认路径 <cache>/datasets/<org>___<name>/...
+    - EvalScope 的 load_dataset_from_hub 调用 MsDataset.load(dataset_name=id, subset_name=..., split=...)，
+      不传 cache_dir，走 MODELSCOPE_CACHE 环境变量默认路径 <cache>/datasets/<org>___<name>/...
     - 因此构建期必须**不传 cache_dir**（依赖 MODELSCOPE_CACHE env），让落盘布局与运行时一致，
       否则构建期 cache_dir=X 落的 <X>/<name>/... 与运行时 <X>/datasets/<name>/... 不一致，永远 miss。
     - 本函数依赖调用方已设 MODELSCOPE_CACHE=cache_dir（main 中设置）。
+
+    子集处理（实测踩坑）：
+    - MsDataset.load 不传 subset_name 时只缓存 default 子集；多子集数据集（ceval 52 子集等）
+      运行时按 subset_name 逐个加载，default 缓存永远 miss 联网。
+    - 因此必须按 subsets 列表逐子集调用 MsDataset.load(subset_name=...)，落盘布局与运行时一致。
+    - subsets=None 表示单子集/default 数据集，不传 subset_name（与运行时一致）。
 
     失败策略（实测踩坑）：
     - split 不存在（如只有 validation 的 truthful_qa 试 test）：静默跳过（loaded_any 不受影响）
     - split 存在但下载失败（CDN 瞬时故障，如 ceval 的 business_administration/dev 曾报
       Network is unreachable）：**重试 3 次**；仍失败则视为该数据集不完整，
-      loaded_any 记 False → 构建 FAIL（宁可构建失败暴露，也不内置残缺缓存导致运行时联网）。
+      返回 False → 构建 FAIL（宁可构建失败暴露，也不内置残缺缓存导致运行时联网）。
     """
     try:
         from modelscope.msdatasets import MsDataset
@@ -102,33 +169,41 @@ def ms_download(dataset_id: str, cache_dir: str) -> bool:
         # val/dev/train 供 fewshot 用，缺失的自动跳过）
         splits = ['test', 'validation', 'val', 'dev', 'train']
         loaded_any = False
-        for split in splits:
-            try:
-                MsDataset.load(dataset_name=dataset_id, split=split)  # 不传 cache_dir，走 MODELSCOPE_CACHE
-                loaded_any = True
-                print(f'  [ok] MS 预缓存 {dataset_id} split={split}', flush=True)
-            except Exception as e:
-                msg = str(e)[:120].lower()
-                if 'split' in msg or 'keyerror' in type(e).__name__.lower() or 'not found' in msg:
-                    continue  # 该 split 不存在，跳过
-                # split 存在但下载失败：重试 3 次（CDN 瞬时故障可恢复），仍失败则数据集不完整
-                retried = False
-                for attempt in range(1, 4):
-                    print(f'  [warn] MS 预缓存 {dataset_id} split={split} 失败(重试 {attempt}/3): '
-                          f'{type(e).__name__}: {str(e)[:120]}', flush=True)
-                    try:
-                        MsDataset.load(dataset_name=dataset_id, split=split)
-                        loaded_any = True
-                        retried = True
-                        print(f'  [ok] MS 预缓存 {dataset_id} split={split} (重试成功)', flush=True)
-                        break
-                    except Exception as e2:
-                        e = e2
-                if retried:
-                    continue
-                print(f'  [warn] MS 预缓存 {dataset_id} split={split} 重试后仍失败: '
-                      f'{type(e).__name__}: {str(e)[:120]}', flush=True)
-                return False  # 数据集不完整，构建 FAIL（不内置残缺缓存）
+        # 逐子集预取（与 EvalScope 运行时 subset_name 一致）；None = 不传 subset（default）
+        subset_list = subsets if subsets else [None]
+        for subset in subset_list:
+            for split in splits:
+                try:
+                    kwargs = dict(dataset_name=dataset_id, split=split)
+                    if subset is not None:
+                        kwargs['subset_name'] = subset
+                    MsDataset.load(**kwargs)  # 不传 cache_dir，走 MODELSCOPE_CACHE
+                    loaded_any = True
+                    tag = f'{dataset_id} subset={subset or "default"} split={split}'
+                    print(f'  [ok] MS 预缓存 {tag}', flush=True)
+                except Exception as e:
+                    msg = str(e)[:120].lower()
+                    if 'split' in msg or 'keyerror' in type(e).__name__.lower() or 'not found' in msg:
+                        continue  # 该 split 不存在，跳过
+                    # split 存在但下载失败：重试 3 次（CDN 瞬时故障可恢复），仍失败则数据集不完整
+                    retried = False
+                    for attempt in range(1, 4):
+                        print(f'  [warn] MS 预缓存 {dataset_id} subset={subset or "default"} split={split} '
+                              f'失败(重试 {attempt}/3): {type(e).__name__}: {str(e)[:120]}', flush=True)
+                        try:
+                            MsDataset.load(**kwargs)
+                            loaded_any = True
+                            retried = True
+                            tag = f'{dataset_id} subset={subset or "default"} split={split}'
+                            print(f'  [ok] MS 预缓存 {tag} (重试成功)', flush=True)
+                            break
+                        except Exception as e2:
+                            e = e2
+                    if retried:
+                        continue
+                    print(f'  [warn] MS 预缓存 {dataset_id} subset={subset or "default"} split={split} '
+                          f'重试后仍失败: {type(e).__name__}: {str(e)[:120]}', flush=True)
+                    return False  # 数据集不完整，构建 FAIL（不内置残缺缓存）
         return loaded_any
     except Exception as e:
         print(f'  [warn] ModelScope 预下载失败 {dataset_id}: {type(e).__name__}: {str(e)[:120]}', flush=True)
@@ -196,8 +271,8 @@ def main():
     os.environ['HF_HOME'] = hf_home
     os.makedirs(hf_home, exist_ok=True)
 
-    def try_ms(dataset_id):
-        return ms_download(dataset_id, args.output)
+    def try_ms(dataset_id, subsets):
+        return ms_download(dataset_id, args.output, subsets)
 
     def try_hf(hf_id):
         return hf_download(hf_id, hf_home, args.hf_endpoint)
@@ -209,12 +284,13 @@ def main():
         HF 兜底已弃用（布局不兼容必然 miss），MS 失败即记 FAIL。
         """
         ms_id, hf_id = resolve_dataset_id(benchmark)
+        subsets = BENCHMARK_SUBSETS.get(benchmark)
         print(f'===== {benchmark} (MS:{ms_id}) =====', flush=True)
         if args.channel == 'hf-first':
             # 仅显式指定 hf-first 时允许 HF 兜底（手动场景，内置清单不用）
-            done = try_hf(hf_id) or try_ms(ms_id)
+            done = try_hf(hf_id) or try_ms(ms_id, subsets)
         else:
-            done = try_ms(ms_id)
+            done = try_ms(ms_id, subsets)
         return benchmark, done
 
     # 串行下载（modelscope MsDataset 库级全局 monkey-patch 并发不安全，实测并发会导致
