@@ -1,10 +1,12 @@
-# GitHub Actions：构建并推送 EvalScope Docker 镜像到 GHCR
+# GitHub Actions：构建并推送 EvalScope Docker 镜像到 GHCR + 阿里云 ACR
 #
 # 触发：push 到 main / 手动 workflow_dispatch / 打 tag v*
-# 产物：ghcr.io/<owner>/evalscope:<tag>
+# 产物：
+#   - GHCR:        ghcr.io/<owner>/evalscope:<tag>
+#   - 阿里云 ACR:  registry.cn-shanghai.aliyuncs.com/luckfu/evalscope:<tag>
+#     （需要仓库设置里配置 secrets：ALIYUN_REGISTRY_USERNAME / ALIYUN_REGISTRY_PASSWORD）
 #   - main 分支：  latest + <sha7>
 #   - tag vX.Y.Z： X.Y.Z + latest
-#   - 手动：       可指定 EVALSCOPE_VERSION / PREFETCH_DATASETS 等
 #
 # 注意：官方 runner 磁盘 ~14GB，PREFETCH_DATASETS=true 时内置核心集 ~1GB，
 # 全量数据请运行时挂载覆盖 /data/datasets_cache。
@@ -32,6 +34,8 @@ on:
 
 env:
   IMAGE_NAME: evalscope
+  ALIYUN_REGISTRY: registry.cn-shanghai.aliyuncs.com
+  ALIYUN_REPO: luckfu/evalscope
 
 jobs:
   build:
@@ -59,21 +63,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
       - name: Compute image tags
         id: meta
         run: |
           REF="${{ github.ref }}"
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          BASE="ghcr.io/${OWNER_LC}/${IMAGE_NAME}"
+          GHCR_BASE="ghcr.io/${OWNER_LC}/${IMAGE_NAME}"
+          ACR_BASE="${ALIYUN_REGISTRY}/${ALIYUN_REPO}"
           if [[ "$REF" == refs/tags/v* ]]; then
             VER="${REF#refs/tags/v}"
-            TAGS="${BASE}:${VER},${BASE}:latest"
+            TAGS="${GHCR_BASE}:${VER},${GHCR_BASE}:latest,${ACR_BASE}:${VER},${ACR_BASE}:latest"
           else
             SHA="${{ github.sha }}"
-            TAGS="${BASE}:latest,${BASE}:${SHA:0:7}"
+            TAGS="${GHCR_BASE}:latest,${GHCR_BASE}:${SHA:0:7},${ACR_BASE}:latest,${ACR_BASE}:${SHA:0:7}"
           fi
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
-          echo "base=$BASE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve build args
         id: args
