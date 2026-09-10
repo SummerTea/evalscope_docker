@@ -37,13 +37,17 @@ ARG PIP_INDEX_URL
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    HF_HOME=/data/datasets_cache/hf_home
+    HF_HOME=/data/datasets_cache/hf_home \
+    # uv 使用（Rust 实现，pip 10-50x）
+    UV_NO_CACHE=1 \
+    UV_INDEX_URL=${PIP_INDEX_URL}
 
+# 用 uv 替代 pip：并行下载 + 极速解析（GitHub Actions 构建 pip 慢的根治方案）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY scripts/prefetch_datasets.py /opt/prefetch_datasets.py
 
-RUN pip install --index-url "${PIP_INDEX_URL}" \
-        "huggingface_hub" "modelscope[datasets]" \
-    && rm -rf /root/.cache
+RUN uv pip install --system --python /usr/local/bin/python \
+        "huggingface_hub" "modelscope[datasets]"
 
 RUN if [ "${PREFETCH_DATASETS}" = "true" ]; then \
         HF_ENDPOINT="${HF_ENDPOINT_BUILD}" python /opt/prefetch_datasets.py \
@@ -63,6 +67,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_NO_CACHE=1 \
+    UV_INDEX_URL=${PIP_INDEX_URL} \
     # 评测结果与数据集缓存统一放 /data（运行时挂载卷）
     EVALSCOPE_OUTPUTS_DIR=/data/outputs \
     HF_HOME=/data/datasets_cache/hf_home \
@@ -72,10 +78,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 安装 EvalScope（含 web service 前端产物）
-RUN pip install --index-url "${PIP_INDEX_URL}" \
-    "evalscope[service]==${EVALSCOPE_VERSION}" \
-    && rm -rf /root/.cache
+# 用 uv 安装 EvalScope（含 web service 前端产物）
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN uv pip install --system --python /usr/local/bin/python \
+    "evalscope[service]==${EVALSCOPE_VERSION}"
 
 # 验证前端产物与 CLI 就绪
 RUN python -c "import os; d=os.path.join(os.path.dirname(os.path.dirname(__import__('evalscope').__file__)),'evalscope','web','dist'); assert os.path.isdir(d), f'missing web dist: {d}'; print('web dist OK:', d)" \

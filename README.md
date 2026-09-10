@@ -38,11 +38,14 @@ docker run -d -p 9000:9000 \
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `EVALSCOPE_VERSION` | `1.11.1` | EvalScope 版本 |
-| `PIP_INDEX_URL` | `https://pypi.org/simple` | pip 源（内网换华为云） |
+| `PIP_INDEX_URL` | `https://pypi.org/simple` | pip 源（内网换华为云；uv 的 `UV_INDEX_URL` 同源） |
 | `PREFETCH_DATASETS` | `true` | 是否预取核心数据集（纯内网可 false，靠挂载） |
 | `PREFETCH_CHANNEL` | `hf-first` | 预取通道：`hf-first`（Actions 公网，HF 直连）/ `ms-first`（内网，ModelScope 优先） |
 | `HF_ENDPOINT_BUILD` | `https://huggingface.co` | 构建期 HF 端点（内网构建换 hf-mirror） |
 | `DATASETS_EXTRA` | 空 | 追加预取数据集（逗号分隔） |
+
+> **依赖安装用 uv**（Rust 实现，pip 10-50x）：`uv pip install` 并行下载 + 极速解析，
+> 配合 workflow 的 `cache-from: type=gha` 依赖层缓存，二次构建大幅提速。
 
 ## GitHub Actions 构建
 
