@@ -1,0 +1,104 @@
+# GitHub Actions：构建并推送 EvalScope Docker 镜像到 GHCR
+#
+# 触发：push 到 main / 手动 workflow_dispatch / 打 tag v*
+# 产物：ghcr.io/<owner>/evalscope:<tag>
+#   - main 分支：  latest + <sha7>
+#   - tag vX.Y.Z： X.Y.Z + latest
+#   - 手动：       可指定 EVALSCOPE_VERSION / PREFETCH_DATASETS 等
+#
+# 注意：官方 runner 磁盘 ~14GB，PREFETCH_DATASETS=true 时内置核心集 ~1GB，
+# 全量数据请运行时挂载覆盖 /data/datasets_cache。
+
+name: build-evalscope-image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      evalscope_version:
+        description: 'EvalScope 版本（默认 1.11.1）'
+        required: false
+        default: '1.11.1'
+      prefetch_datasets:
+        description: '是否预取核心数据集（true/false）'
+        required: false
+        default: 'true'
+      prefetch_channel:
+        description: '预取通道（hf-first / ms-first）'
+        required: false
+        default: 'hf-first'
+
+env:
+  IMAGE_NAME: evalscope
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        run: |
+          REF="${{ github.ref }}"
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          BASE="ghcr.io/${OWNER_LC}/${IMAGE_NAME}"
+          if [[ "$REF" == refs/tags/v* ]]; then
+            VER="${REF#refs/tags/v}"
+            TAGS="${BASE}:${VER},${BASE}:latest"
+          else
+            SHA="${{ github.sha }}"
+            TAGS="${BASE}:latest,${BASE}:${SHA:0:7}"
+          fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve build args
+        id: args
+        run: |
+          VERSION="${{ github.event.inputs.evalscope_version }}"
+          VERSION="${VERSION:-1.11.1}"
+          PREFETCH="${{ github.event.inputs.prefetch_datasets }}"
+          PREFETCH="${PREFETCH:-true}"
+          CHANNEL="${{ github.event.inputs.prefetch_channel }}"
+          CHANNEL="${CHANNEL:-hf-first}"
+          echo "evalscope_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prefetch_datasets=$PREFETCH" >> "$GITHUB_OUTPUT"
+          echo "prefetch_channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            EVALSCOPE_VERSION=${{ steps.args.outputs.evalscope_version }}
+            PREFETCH_DATASETS=${{ steps.args.outputs.prefetch_datasets }}
+            PREFETCH_CHANNEL=${{ steps.args.outputs.prefetch_channel }}
+            DATASETS_EXTRA=
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

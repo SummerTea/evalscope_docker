@@ -1,0 +1,16 @@
+# 构建缓存/数据
+.datasets_cache/
+datasets/
+outputs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 本地编辑器
+.DS_Store
+.idea/
+.vscode/

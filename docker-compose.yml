@@ -1,0 +1,29 @@
+# EvalScope 评测服务（本地/内网编排参考）
+# 用法：
+#   docker compose up -d
+#   # 内网挂载覆盖数据集：取消注释下面的 volumes 行
+services:
+  evalscope:
+    image: ghcr.io/${GHCR_OWNER:-your-org}/evalscope:latest
+    # 本地构建（无 GHCR 时）：
+    # build:
+    #   context: .
+    #   args:
+    #     PREFETCH_DATASETS: "true"
+    #     PREFETCH_CHANNEL: "hf-first"
+    container_name: evalscope
+    ports:
+      - "9000:9000"
+    environment:
+      # 被测模型端点（OpenAI 兼容，指向内网 vLLM/SGLang）
+      EVALSCOPE_BASE_URL: "http://10.1.251.230:8000/v1"
+      EVALSCOPE_API_KEY: "EMPTY"
+      # 内网 HF 镜像（半内网场景；纯内网用内置数据 + OFFLINE）
+      # HF_ENDPOINT: "https://hf-mirror.com"
+      # HF_HUB_OFFLINE: "1"
+    volumes:
+      # 评测输出持久化
+      - ./outputs:/data/outputs
+      # 核心数据集挂载覆盖（全量数据放宿主，覆盖镜像内置精选集）
+      - /nfsdata/eval_platform/datasets_cache:/data/datasets_cache
+    restart: unless-stopped

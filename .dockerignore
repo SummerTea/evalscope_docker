@@ -1,0 +1,20 @@
+# Git
+.git
+.gitignore
+
+# 构建产物/缓存（本地构建痕迹不进镜像上下文）
+.datasets_cache/
+datasets/
+outputs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 本地编辑器
+.DS_Store
+.idea/
+.vscode/
