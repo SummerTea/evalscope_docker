@@ -10,9 +10,9 @@
 | 服务 | `evalscope service`（Flask Web：任务提交/报告/对比/Arena），端口 9000 |
 | 前端 | PyPI wheel 自带构建好的 React SPA，**无需 node 构建阶段** |
 | 依赖 | `evalscope[service]` = flask/plotly/perf（aiohttp/uvicorn/numpy），**无 torch**，纯 CPU 可跑 |
-| Agent 支持 | 内置 **τ²-bench**（tau2-bench@v0.2.0，airline/retail/telecom 客服域）+ **BFCL-v3**（函数调用） |
+| Agent 支持 | 内置 **τ²-bench** 运行依赖（tau2-bench@v0.2.0，airline/retail/telecom 客服域）+ **BFCL-v3**（函数调用）。τ²-bench **数据**走独立快照路径，运行时按需拉取或挂载（见下） |
 | 评测对象 | OpenAI 兼容 API（`EVALSCOPE_BASE_URL` 指向内网 vLLM/SGLang） |
-| 内置数据 | 18 个测试集（~1-2GB，除多模态外全维度：数学/中文/知识/推理/常识/指令/代码/agent/函数调用） |
+| 内置数据 | 17 个测试集（~1-2GB，除多模态外全维度：数学/中文/知识/推理/常识/指令/代码/函数调用） |
 | 离线能力 | **纯内网零网络可用**（数据经 MODELSCOPE_CACHE 命中，实测缓存命中 2.3s vs 首次下载 20s） |
 | 数据覆盖 | 运行时挂载 `/data/datasets_cache` 即可覆盖内置（全量数据放宿主） |
 
@@ -27,7 +27,7 @@
 | 常识 | `hellaswag` / `winogrande` / `truthful_qa` / `commonsense_qa` | `evalscope/hellaswag` / `AI-ModelScope/winogrande_val` / `evalscope/truthful_qa` / `extraordinarylab/commonsense-qa` |
 | 指令遵循 | `ifeval` | `opencompass/ifeval` |
 | 代码 | `humaneval` | `opencompass/humaneval` |
-| **Agent** | **`tau2_bench`**（客服 agent） | **`evalscope/tau2-bench-data`** |
+| **Agent** | **`tau2_bench`**（客服 agent：数据运行时按需拉取或挂载，依赖已内置） | `evalscope/tau2-bench-data` |
 | 函数调用 | `bfcl_v3`（17 子集） | `AI-ModelScope/bfcl_v3` |
 
 > 多模态（vlm）/图像/视频/音频测试集不内置（镜像体积约束），需时挂载或按需拉取。

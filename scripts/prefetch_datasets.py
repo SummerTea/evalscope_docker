@@ -23,8 +23,11 @@ import os
 import sys
 
 # 内置测试集：EvalScope benchmark 名 -> (MS dataset_id, 说明)
-# 覆盖维度：数学/中文/知识/推理/常识/指令/代码/综合/agent/函数调用（除多模态外全维度）
+# 覆盖维度：数学/中文/知识/推理/常识/指令/代码/函数调用（除多模态外全维度）
 # 体积预算 ~1-2GB（GitHub Actions runner 磁盘 ~14GB 内可控）
+# 注意：tau2_bench 已排除——其数据加载走独立的 resolve_snapshot_or_local_path 快照路径
+# （非 MsDataset.load 主流程），且数据格式特殊（DatasetGenerationError 实测），
+# 运行时按需拉取或挂载覆盖即可，不影响内置离线集。
 CORE_BENCHMARKS = {
     # 数学推理
     'gsm8k': ('AI-ModelScope/gsm8k', 'GSM8K 数学推理'),
@@ -49,8 +52,6 @@ CORE_BENCHMARKS = {
     'ifeval': ('opencompass/ifeval', 'IFEval 指令遵循'),
     # 代码
     'humaneval': ('opencompass/humaneval', 'HumanEval 代码'),
-    # Agent
-    'tau2_bench': ('evalscope/tau2-bench-data', 'τ²-bench 客服 agent（airline/retail/telecom）'),
     # 函数调用
     'bfcl_v3': ('AI-ModelScope/bfcl_v3', 'BFCL-v3 函数调用（17 子集）'),
 }
