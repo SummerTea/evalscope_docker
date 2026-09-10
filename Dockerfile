@@ -87,7 +87,9 @@ RUN uv pip install --system --python /usr/local/bin/python \
 # 安装 τ²-bench（agent 评测：airline/retail/telecom 客服域）
 # 与 EvalScope tau2_bench adapter 要求一致（sierra-research/tau2-bench@v0.2.0）
 # 注意：tau2 与 tau3 不能同环境共存（同一 PyPI 包名不同版本），本镜像按 tau2 接入
-RUN uv pip install --system --python /usr/local/bin/python \
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv pip install --system --python /usr/local/bin/python \
     "tau2 @ git+https://github.com/sierra-research/tau2-bench@v0.2.0" \
     && uv pip install --system --python /usr/local/bin/python \
     "litellm" "fastapi" "pandas"
