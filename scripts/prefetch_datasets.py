@@ -7,13 +7,13 @@
   - dataset_hub=MODELSCOPE -> MsDataset.load(id)，命中 MODELSCOPE_CACHE 缓存
   所以构建期把数据集灌进 MS 缓存目录，运行时 `MODELSCOPE_CACHE` 命中即零网络。
 
-通道策略（本脚本为 MS-first，适配 EvalScope 默认数据源）：
-  1. ModelScope（EvalScope 默认通道，dataset_id 即 MS ID）——主通道
-  2. HuggingFace 兜底（仅当 MS 无该 ID 时，走 HF 缓存 HF_HOME）
+通道策略（本脚本为 MS-only，适配 EvalScope 默认数据源）：
+  - ModelScope（EvalScope 默认通道，dataset_id 即 MS ID）——唯一通道
+  - 不用 HF 兜底：HF snapshot_download 落盘 HF_HOME 布局，而 EvalScope 运行时
+    走 MsDataset.load 查 MODELSCOPE_CACHE 布局，两者不兼容，兜底数据必然 miss 联网重下。
 
 用法：
   python prefetch_datasets.py --output /data/datasets_cache
-  python prefetch_datasets.py --channel ms-first            # 默认（适配 EvalScope）
   python prefetch_datasets.py --datasets "gsm8k,ceval"      # 显式清单（EvalScope benchmark 名）
   python prefetch_datasets.py --datasets-file datasets.txt  # 清单文件（每行一个 benchmark 名）
 """
@@ -46,6 +46,7 @@ CORE_BENCHMARKS = {
     # 常识
     'hellaswag': ('evalscope/hellaswag', 'HellaSwag 常识'),
     'winogrande': ('AI-ModelScope/winogrande_val', 'Winogrande 常识'),
+    'truthful_qa': ('evalscope/truthful_qa', 'TruthfulQA 事实'),
     'commonsense_qa': ('extraordinarylab/commonsense-qa', 'CommonsenseQA'),
     # 指令遵循
     'ifeval': ('opencompass/ifeval', 'IFEval 指令遵循'),
@@ -56,6 +57,8 @@ CORE_BENCHMARKS = {
 }
 
 # MS 无时的 HF 兜底映射（EvalScope dataset_id -> HF repo）
+# 注意：已弃用——HF 兜底落盘 HF_HOME 布局，与 EvalScope 运行时 MODELSCOPE_CACHE 布局不兼容，
+# 必然 miss 联网重下（详见 hf_download 弃用说明）。保留映射仅作参考，不再使用。
 MS_TO_HF = {
     'AI-ModelScope/gsm8k': 'openai/gsm8k',
     'evalscope/ceval': 'ceval/ceval-exam',
@@ -89,8 +92,9 @@ def ms_download(dataset_id: str, cache_dir: str) -> bool:
         print(f'  [warn] modelscope 未安装，跳过 MS 通道: {dataset_id}', flush=True)
         return False
     try:
-        # 预下载各 split（test 为主；val/dev/train 供 fewshot 用，缺失的自动跳过）
-        splits = ['test', 'val', 'dev', 'train']
+        # 预下载各 split（test 为主；validation 供 eval_split=validation 的 benchmark 用，
+        # val/dev/train 供 fewshot 用，缺失的自动跳过）
+        splits = ['test', 'validation', 'val', 'dev', 'train']
         loaded_any = False
         for split in splits:
             try:
@@ -109,13 +113,17 @@ def ms_download(dataset_id: str, cache_dir: str) -> bool:
 
 
 def hf_download(hf_id: str, hf_home: str, endpoint: str) -> bool:
-    """HF 缓存下载（HF_HOME 布局），命中缓存则跳过。
+    """【已弃用】HF 缓存下载（HF_HOME 布局）。
 
-    注意：HF_ENDPOINT/HF_HOME 由 main 一次性设置（全局 env），本函数不再修改。
-    注意：必须显式 `import huggingface_hub` 后取 snapshot_download——
-    同环境装了 modelscope[datasets] 会遮蔽 huggingface_hub 的顶层导出，
-    直接 `from huggingface_hub import snapshot_download` 可能拿到 modelscope 实现
-    （实测报 NotExistError/E3020 且 URL 指向 modelscope.cn）。
+    弃用原因（实测）：HF snapshot_download 落盘 <hf_home>/datasets/<org>__<name>/...，
+    而 EvalScope 运行时 load_dataset_from_hub（hub.py:89-104）走 MsDataset.load 查
+    MODELSCOPE_CACHE/datasets/<org>___<name>/...（不传 cache_dir）——两者布局不兼容，
+    兜底数据运行时必然 miss 联网重下，等于没内置。故主流程只走 MS 通道。
+    此外同环境 modelscope[datasets] 会遮蔽 huggingface_hub 顶层导出，导致
+    snapshot_download 被劫持报 NotExistError/E3020（URL 指向 modelscope.cn）。
+
+    保留此函数仅为向后兼容（--datasets 显式指定 MS 无的 repo 时仍可手动兜底），
+    内置清单 CORE_BENCHMARKS 不再走该通道。
     """
     try:
         import huggingface_hub
@@ -143,11 +151,10 @@ def main():
     parser = argparse.ArgumentParser(description='预取核心评测数据集到缓存目录')
     parser.add_argument('--output', default='/data/datasets_cache', help='缓存根目录（默认 /data/datasets_cache）')
     parser.add_argument('--channel', default='ms-first', choices=['ms-first', 'hf-first'],
-                        help='通道优先级（默认 ms-first，适配 EvalScope 默认 MS 数据源）')
+                        help='通道优先级（默认 ms-first：内置清单走 MS 通道，HF 兜底已弃用）')
     parser.add_argument('--datasets', default='', help='显式 benchmark 清单（逗号分隔，覆盖默认）')
     parser.add_argument('--datasets-file', default='', help='benchmark 清单文件（每行一个，# 注释）')
-    parser.add_argument('--hf-endpoint', default='https://huggingface.co', help='HF 端点（内网可换 https://hf-mirror.com）')
-    parser.add_argument('--parallel', type=int, default=4, help='并发下载数（默认 4，数据集间无依赖可并行）')
+    parser.add_argument('--hf-endpoint', default='https://huggingface.co', help='HF 端点（仅 hf-first 手动兜底时使用）')
     args = parser.parse_args()
 
     if args.datasets_file:
@@ -159,7 +166,7 @@ def main():
         benchmarks = list(CORE_BENCHMARKS.keys())
 
     os.makedirs(args.output, exist_ok=True)
-    # 全局 env 一次性设置（并发下载时多线程改 env 会互相覆盖，严禁在下载函数内修改）
+    # 全局 env 一次性设置（EvalScope 运行时同路径命中）
     os.environ['MODELSCOPE_CACHE'] = args.output
     os.environ['HF_ENDPOINT'] = args.hf_endpoint
     hf_home = os.path.join(args.output, 'hf_home')
@@ -173,39 +180,23 @@ def main():
         return hf_download(hf_id, hf_home, args.hf_endpoint)
 
     def download_one(benchmark):
-        """下载单个 benchmark（MS 优先或 HF 优先），返回 (benchmark, ok)。"""
+        """下载单个 benchmark，返回 (benchmark, ok)。
+
+        ms-first：只走 MS 通道（EvalScope 默认数据源，落盘 MODELSCOPE_CACHE 布局与运行时一致）；
+        HF 兜底已弃用（布局不兼容必然 miss），MS 失败即记 FAIL。
+        """
         ms_id, hf_id = resolve_dataset_id(benchmark)
         print(f'===== {benchmark} (MS:{ms_id}) =====', flush=True)
-        if args.channel == 'ms-first':
-            done = try_ms(ms_id) or try_hf(hf_id)
-        else:
+        if args.channel == 'hf-first':
+            # 仅显式指定 hf-first 时允许 HF 兜底（手动场景，内置清单不用）
             done = try_hf(hf_id) or try_ms(ms_id)
+        else:
+            done = try_ms(ms_id)
         return benchmark, done
 
-    # 并发下载（数据集间无依赖；Modelscope 库线程安全即可并行）
-    import concurrent.futures
-    max_workers = max(1, min(args.parallel, len(benchmarks)))
-    results = []
-    if len(benchmarks) == 1 or args.parallel <= 1:
-        for b in benchmarks:
-            results.append(download_one(b))
-    else:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(download_one, b): b for b in benchmarks}
-            for fut in concurrent.futures.as_completed(futures):
-                try:
-                    results.append(fut.result())
-                except Exception as e:
-                    results.append((futures[fut], False))
-                    print(f'  [warn] {futures[fut]} 并发任务异常: {e}', flush=True)
-
-    # 失败项串行重试一次（modelscope MsDataset 并发不安全，串行可规避）
-    retry_failed = [b for b, done in results if not done]
-    if retry_failed:
-        print(f'\n=== 并发完成，{len(retry_failed)} 项失败，串行重试 ===', flush=True)
-        for b in retry_failed:
-            results = [(bb, dd) for bb, dd in results if bb != b]
-            results.append(download_one(b))
+    # 串行下载（modelscope MsDataset 库级全局 monkey-patch 并发不安全，实测并发会导致
+    # 个别数据集失败；串行稳定且构建时长可接受）
+    results = [download_one(b) for b in benchmarks]
 
     ok = [b for b, done in results if done]
     failed = [b for b, done in results if not done]

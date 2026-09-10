@@ -1,7 +1,7 @@
 # evalscope_docker
 
 自建 EvalScope（ModelScope 官方 LLM 评测框架）Docker 镜像工程。
-**镜像内置 16 个核心测试集（除多模态外全维度覆盖），内网完全离线可用，运行时可通过挂载覆盖**；GitHub Actions 自动构建并推送 GHCR + 阿里云 ACR。
+**镜像内置 17 个核心测试集（除多模态外全维度覆盖），内网完全离线可用，运行时可通过挂载覆盖**；GitHub Actions 自动构建并推送 GHCR + 阿里云 ACR。
 
 ## 特性
 
@@ -12,11 +12,11 @@
 | 依赖 | `evalscope[service]` = flask/plotly/perf（aiohttp/uvicorn/numpy），**无 torch**，纯 CPU 可跑 |
 | Agent 支持 | 内置 **τ²-bench** 运行依赖（tau2-bench@v0.2.0，airline/retail/telecom 客服域）+ **BFCL-v3**（函数调用）。τ²-bench **数据**走独立快照路径，运行时按需拉取或挂载（见下） |
 | 评测对象 | OpenAI 兼容 API（`EVALSCOPE_BASE_URL` 指向内网 vLLM/SGLang） |
-| 内置数据 | 16 个测试集（~1-2GB，除多模态外全维度：数学/中文/知识/推理/常识/指令/代码/函数调用） |
+| 内置数据 | 17 个测试集（~1-2GB，除多模态外全维度：数学/中文/知识/推理/常识/指令/代码/函数调用） |
 | 离线能力 | **纯内网零网络可用**（数据经 MODELSCOPE_CACHE 命中，实测缓存命中 2.3s vs 首次下载 20s） |
 | 数据覆盖 | 运行时挂载 `/data/datasets_cache` 即可覆盖内置（全量数据放宿主） |
 
-## 内置测试集（16 个，除多模态外全维度）
+## 内置测试集（17 个，除多模态外全维度）
 
 | 维度 | benchmark（EvalScope 名） | dataset_id（ModelScope） |
 |---|---|---|
@@ -24,7 +24,7 @@
 | 中文知识 | `ceval`（52 子集）/ `cmmlu`（67 子集） | `evalscope/ceval` / `evalscope/cmmlu` |
 | 通用知识 | `mmlu_pro` / `gpqa_diamond` | `TIGER-Lab/MMLU-Pro` / `AI-ModelScope/gpqa_diamond` |
 | 推理 | `bbh`（27 子集）/ `arc` / `agieval`（21 子集） | `evalscope/bbh` / `allenai/ai2_arc` / `opencompass/agieval` |
-| 常识 | `hellaswag` / `winogrande` / `commonsense_qa` | `evalscope/hellaswag` / `AI-ModelScope/winogrande_val` / `extraordinarylab/commonsense-qa` |
+| 常识 | `hellaswag` / `winogrande` / `truthful_qa` / `commonsense_qa` | `evalscope/hellaswag` / `AI-ModelScope/winogrande_val` / `evalscope/truthful_qa` / `extraordinarylab/commonsense-qa` |
 | 指令遵循 | `ifeval` | `opencompass/ifeval` |
 | 代码 | `humaneval` | `opencompass/humaneval` |
 | **Agent** | **`tau2_bench`**（客服 agent：数据运行时按需拉取或挂载，依赖已内置） | `evalscope/tau2-bench-data` |
@@ -59,8 +59,8 @@ docker run -d -p 9000:9000 \
 | `EVALSCOPE_VERSION` | `1.11.1` | EvalScope 版本 |
 | `PIP_INDEX_URL` | `https://pypi.org/simple` | pip 源（内网换华为云；uv 的 `UV_INDEX_URL` 同源） |
 | `PREFETCH_DATASETS` | `true` | 是否预取内置数据集（纯内网可 false，靠挂载） |
-| `PREFETCH_CHANNEL` | `ms-first` | 预取通道：`ms-first`（默认，适配 EvalScope 默认 ModelScope 数据源）/ `hf-first` |
-| `HF_ENDPOINT_BUILD` | `https://huggingface.co` | 构建期 HF 端点（内网构建换 hf-mirror） |
+| `PREFETCH_CHANNEL` | `ms-first` | 预取通道：`ms-first`（唯一推荐，适配 EvalScope 默认 ModelScope 数据源）。HF 兜底**已弃用**——HF 落盘布局与 EvalScope 运行时 MODELSCOPE_CACHE 布局不兼容，兜底数据必然 miss 联网重下 |
+| `HF_ENDPOINT_BUILD` | `https://huggingface.co` | 构建期 HF 端点（仅 `hf-first` 手动兜底场景使用；内置清单不再走 HF） |
 | `DATASETS_EXTRA` | 空 | 追加预取数据集（逗号分隔，EvalScope benchmark 名） |
 
 > **依赖安装用 uv**（Rust 实现，pip 10-50x）：`uv pip install` 并行下载 + 极速解析，
@@ -96,9 +96,10 @@ dataset_id 是本地路径    -> os.path.exists 命中即本地读取，零网�
 2. 预下载**不能传 `cache_dir`**——必须依赖 `MODELSCOPE_CACHE` env，让落盘布局（`<cache>/datasets/<org>___<name>/`）与运行时完全一致
 3. 实测：构建期缓存 + 运行时同路径 → 第二次加载 2.3s（命中）；路径不一致 → 永远 miss 联网下载
 
-- **内置**：构建期 `scripts/prefetch_datasets.py`（设置 `MODELSCOPE_CACHE=/data/datasets_cache` 后 `MsDataset.load` 预下载各 split）
+- **内置**：构建期 `scripts/prefetch_datasets.py`（设置 `MODELSCOPE_CACHE=/data/datasets_cache` 后 `MsDataset.load` 预下载各 split，覆盖 test/validation/val/dev/train）
 - **覆盖**：运行时 `-v <host>:/data/datasets_cache` 挂载即整体覆盖内置（宿主数据优先）
 - **离线**：纯内网 `HF_HUB_OFFLINE=1` + 内置数据，完全零网络
+- **不用 HF 兜底**：HF `snapshot_download` 落盘 `<hf_home>/datasets/<org>__<name>/`，而 EvalScope 运行时查 `MODELSCOPE_CACHE/datasets/<org>___<name>/`（hub.py 不传 cache_dir）——布局不兼容必然 miss，故内置清单只走 MS 通道
 
 自定义预取清单：`--datasets "gsm8k,ceval"`（EvalScope benchmark 名）或 `--datasets-file list.txt`。
 
@@ -109,4 +110,4 @@ docker compose up -d     # docker-compose.yml 已配好挂载与环境变量
 ```
 
 半内网（可访问 hf-mirror）：设 `HF_ENDPOINT=https://hf-mirror.com`，运行时按需下载未内置数据。
-纯内网：内置 18 测试集开箱即用；更多数据挂载 `/data/datasets_cache` 覆盖 + `HF_HUB_OFFLINE=1`。
+纯内网：内置 17 测试集开箱即用；更多数据挂载 `/data/datasets_cache` 覆盖 + `HF_HUB_OFFLINE=1`。

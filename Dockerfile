@@ -54,9 +54,6 @@ RUN if [ "${PREFETCH_DATASETS}" = "true" ]; then \
         HF_ENDPOINT="${HF_ENDPOINT_BUILD}" MODELSCOPE_CACHE=/data/datasets_cache \
             python /opt/prefetch_datasets.py \
             --output /data/datasets_cache \
-            --channel "${PREFETCH_CHANNEL}" \
-            --hf-endpoint "${HF_ENDPOINT_BUILD}" \
-            --parallel 4 \
             ${DATASETS_EXTRA:+--datasets "${DATASETS_EXTRA}"}; \
     fi
 
