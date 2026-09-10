@@ -110,15 +110,17 @@ def ms_download(dataset_id: str, cache_dir: str) -> bool:
 
 
 def hf_download(hf_id: str, hf_home: str, endpoint: str) -> bool:
-    """HF 缓存下载（HF_HOME 布局），命中缓存则跳过。"""
+    """HF 缓存下载（HF_HOME 布局），命中缓存则跳过。
+
+    注意：HF_ENDPOINT/HF_HOME 由 main 一次性设置（全局 env），本函数不再修改——
+    并发下载时多线程改全局 env 会互相覆盖（实测导致 HF 请求打到 modelscope 的错误）。
+    """
     try:
         from huggingface_hub import snapshot_download
     except ImportError:
         print(f'  [warn] huggingface_hub 未安装，跳过 HF 通道: {hf_id}', flush=True)
         return False
     try:
-        os.environ['HF_ENDPOINT'] = endpoint
-        os.environ['HF_HOME'] = hf_home
         snapshot_download(repo_id=hf_id, repo_type='dataset')
         print(f'  [ok] HF: {hf_id} (endpoint={endpoint})', flush=True)
         return True
@@ -155,9 +157,11 @@ def main():
         benchmarks = list(CORE_BENCHMARKS.keys())
 
     os.makedirs(args.output, exist_ok=True)
-    # MS 通道依赖 MODELSCOPE_CACHE env（EvalScope 运行时同路径命中）
+    # 全局 env 一次性设置（并发下载时多线程改 env 会互相覆盖，严禁在下载函数内修改）
     os.environ['MODELSCOPE_CACHE'] = args.output
+    os.environ['HF_ENDPOINT'] = args.hf_endpoint
     hf_home = os.path.join(args.output, 'hf_home')
+    os.environ['HF_HOME'] = hf_home
     os.makedirs(hf_home, exist_ok=True)
 
     def try_ms(dataset_id):
