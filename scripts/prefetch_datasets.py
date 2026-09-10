@@ -85,6 +85,12 @@ def ms_download(dataset_id: str, cache_dir: str) -> bool:
     - 因此构建期必须**不传 cache_dir**（依赖 MODELSCOPE_CACHE env），让落盘布局与运行时一致，
       否则构建期 cache_dir=X 落的 <X>/<name>/... 与运行时 <X>/datasets/<name>/... 不一致，永远 miss。
     - 本函数依赖调用方已设 MODELSCOPE_CACHE=cache_dir（main 中设置）。
+
+    失败策略（实测踩坑）：
+    - split 不存在（如只有 validation 的 truthful_qa 试 test）：静默跳过（loaded_any 不受影响）
+    - split 存在但下载失败（CDN 瞬时故障，如 ceval 的 business_administration/dev 曾报
+      Network is unreachable）：**重试 3 次**；仍失败则视为该数据集不完整，
+      loaded_any 记 False → 构建 FAIL（宁可构建失败暴露，也不内置残缺缓存导致运行时联网）。
     """
     try:
         from modelscope.msdatasets import MsDataset
@@ -105,7 +111,24 @@ def ms_download(dataset_id: str, cache_dir: str) -> bool:
                 msg = str(e)[:120].lower()
                 if 'split' in msg or 'keyerror' in type(e).__name__.lower() or 'not found' in msg:
                     continue  # 该 split 不存在，跳过
-                print(f'  [warn] MS 预缓存 {dataset_id} split={split} 失败: {type(e).__name__}: {str(e)[:120]}', flush=True)
+                # split 存在但下载失败：重试 3 次（CDN 瞬时故障可恢复），仍失败则数据集不完整
+                retried = False
+                for attempt in range(1, 4):
+                    print(f'  [warn] MS 预缓存 {dataset_id} split={split} 失败(重试 {attempt}/3): '
+                          f'{type(e).__name__}: {str(e)[:120]}', flush=True)
+                    try:
+                        MsDataset.load(dataset_name=dataset_id, split=split)
+                        loaded_any = True
+                        retried = True
+                        print(f'  [ok] MS 预缓存 {dataset_id} split={split} (重试成功)', flush=True)
+                        break
+                    except Exception as e2:
+                        e = e2
+                if retried:
+                    continue
+                print(f'  [warn] MS 预缓存 {dataset_id} split={split} 重试后仍失败: '
+                      f'{type(e).__name__}: {str(e)[:120]}', flush=True)
+                return False  # 数据集不完整，构建 FAIL（不内置残缺缓存）
         return loaded_any
     except Exception as e:
         print(f'  [warn] ModelScope 预下载失败 {dataset_id}: {type(e).__name__}: {str(e)[:120]}', flush=True)

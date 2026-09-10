@@ -79,9 +79,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # 用 uv 安装 EvalScope（含 web service 前端产物）
+# extras: service=Web/对比/Perf 平台；ifeval=指令遵循评测(langdetect+nltk)；bfcl=函数调用评测(bfcl-eval)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --python /usr/local/bin/python \
-    "evalscope[service]==${EVALSCOPE_VERSION}"
+    "evalscope[service,ifeval,bfcl]==${EVALSCOPE_VERSION}"
+# TODO(next): 预下载 NLTK punkt_tab 词表数据到 ~/nltk_data（ifeval 评测依赖句子切分；
+# 内网离线必需，构建期 GitHub Actions 外网可达时灌入，走 evalscope.utils.resource_utils.check_nltk_data mirror）
 
 # 安装 τ²-bench（agent 评测：airline/retail/telecom 客服域）
 # 与 EvalScope tau2_bench adapter 要求一致（sierra-research/tau2-bench@v0.2.0）

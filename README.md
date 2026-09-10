@@ -10,8 +10,9 @@
 | 服务 | `evalscope service`（Flask Web：任务提交/报告/对比/Arena），端口 9000 |
 | 前端 | PyPI wheel 自带构建好的 React SPA，**无需 node 构建阶段** |
 | 依赖 | `evalscope[service]` = flask/plotly/perf（aiohttp/uvicorn/numpy），**无 torch**，纯 CPU 可跑 |
-| Agent 支持 | 内置 **τ²-bench** 运行依赖（tau2-bench@v0.2.0，airline/retail/telecom 客服域）+ **BFCL-v3**（函数调用）。τ²-bench **数据**走独立快照路径，运行时按需拉取或挂载（见下） |
+| Agent 支持 | 内置 **τ²-bench** 运行依赖（tau2-bench@v0.2.0，airline/retail/telecom 客服域）+ **BFCL-v3**（函数调用，`evalscope[bfcl]`）。τ²-bench **数据**走独立快照路径，运行时按需拉取或挂载（见下） |
 | 评测对象 | OpenAI 兼容 API（`EVALSCOPE_BASE_URL` 指向内网 vLLM/SGLang） |
+| 指令遵循 | `ifeval` 依赖已内置（`evalscope[ifeval]` = langdetect + nltk + **punkt_tab 词表数据**，构建期预下载到 `~/nltk_data`，内网离线可用） |
 | 内置数据 | 17 个测试集（~1-2GB，除多模态外全维度：数学/中文/知识/推理/常识/指令/代码/函数调用） |
 | 离线能力 | **纯内网零网络可用**（数据经 MODELSCOPE_CACHE 命中，实测缓存命中 2.3s vs 首次下载 20s） |
 | 数据覆盖 | 运行时挂载 `/data/datasets_cache` 即可覆盖内置（全量数据放宿主） |
