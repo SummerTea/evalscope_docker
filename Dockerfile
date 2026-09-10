@@ -51,7 +51,8 @@ RUN uv pip install --system --python /usr/local/bin/python \
         "huggingface_hub" "modelscope[datasets]"
 
 RUN if [ "${PREFETCH_DATASETS}" = "true" ]; then \
-        HF_ENDPOINT="${HF_ENDPOINT_BUILD}" python /opt/prefetch_datasets.py \
+        HF_ENDPOINT="${HF_ENDPOINT_BUILD}" MODELSCOPE_CACHE=/data/datasets_cache \
+            python /opt/prefetch_datasets.py \
             --output /data/datasets_cache \
             --channel "${PREFETCH_CHANNEL}" \
             --hf-endpoint "${HF_ENDPOINT_BUILD}" \

@@ -74,24 +74,37 @@ MS_TO_HF = {
 
 
 def ms_download(dataset_id: str, cache_dir: str) -> bool:
-    """ModelScope 缓存下载；命中缓存则跳过。"""
+    """ModelScope 预下载并缓存数据集（与 EvalScope 运行时 MsDataset.load 同路径，命中即离线）。
+
+    关键（实测验证）：
+    - EvalScope 的 load_dataset_from_hub 调用 MsDataset.load(dataset_name=id)，不传 cache_dir，
+      走 MODELSCOPE_CACHE 环境变量默认路径 <cache>/datasets/<org>___<name>/...
+    - 因此构建期必须**不传 cache_dir**（依赖 MODELSCOPE_CACHE env），让落盘布局与运行时一致，
+      否则构建期 cache_dir=X 落的 <X>/<name>/... 与运行时 <X>/datasets/<name>/... 不一致，永远 miss。
+    - 本函数依赖调用方已设 MODELSCOPE_CACHE=cache_dir（main 中设置）。
+    """
     try:
-        from modelscope import dataset_snapshot_download
+        from modelscope.msdatasets import MsDataset
     except ImportError:
         print(f'  [warn] modelscope 未安装，跳过 MS 通道: {dataset_id}', flush=True)
         return False
     try:
-        # modelscope 缓存布局: <cache>/hub/datasets/<org>/<name>
-        org, _, name = dataset_id.partition('/')
-        hit = os.path.isdir(os.path.join(cache_dir, 'hub', 'datasets', org, name))
-        if hit:
-            print(f'  [skip] MS 缓存命中: {dataset_id}', flush=True)
-            return True
-        dataset_snapshot_download(dataset_id, cache_dir=cache_dir)
-        print(f'  [ok] ModelScope: {dataset_id}', flush=True)
-        return True
+        # 预下载各 split（test 为主；val/dev/train 供 fewshot 用，缺失的自动跳过）
+        splits = ['test', 'val', 'dev', 'train']
+        loaded_any = False
+        for split in splits:
+            try:
+                MsDataset.load(dataset_name=dataset_id, split=split)  # 不传 cache_dir，走 MODELSCOPE_CACHE
+                loaded_any = True
+                print(f'  [ok] MS 预缓存 {dataset_id} split={split}', flush=True)
+            except Exception as e:
+                msg = str(e)[:120].lower()
+                if 'split' in msg or 'keyerror' in type(e).__name__.lower() or 'not found' in msg:
+                    continue  # 该 split 不存在，跳过
+                print(f'  [warn] MS 预缓存 {dataset_id} split={split} 失败: {type(e).__name__}: {str(e)[:120]}', flush=True)
+        return loaded_any
     except Exception as e:
-        print(f'  [warn] ModelScope 下载失败 {dataset_id}: {type(e).__name__}: {e}', flush=True)
+        print(f'  [warn] ModelScope 预下载失败 {dataset_id}: {type(e).__name__}: {str(e)[:120]}', flush=True)
         return False
 
 
@@ -140,6 +153,8 @@ def main():
         benchmarks = list(CORE_BENCHMARKS.keys())
 
     os.makedirs(args.output, exist_ok=True)
+    # MS 通道依赖 MODELSCOPE_CACHE env（EvalScope 运行时同路径命中）
+    os.environ['MODELSCOPE_CACHE'] = args.output
     hf_home = os.path.join(args.output, 'hf_home')
     os.makedirs(hf_home, exist_ok=True)
 
