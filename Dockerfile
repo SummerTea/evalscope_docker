@@ -22,7 +22,8 @@
 ARG EVALSCOPE_VERSION=1.11.1
 ARG PIP_INDEX_URL=https://pypi.org/simple
 ARG PREFETCH_DATASETS=true
-ARG PREFETCH_CHANNEL=hf-first
+# MS-first：适配 EvalScope 默认 ModelScope 数据源（dataset_id 即 MS ID）
+ARG PREFETCH_CHANNEL=ms-first
 ARG HF_ENDPOINT_BUILD=https://huggingface.co
 ARG DATASETS_EXTRA=
 

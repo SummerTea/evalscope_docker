@@ -28,9 +28,9 @@ on:
         required: false
         default: 'true'
       prefetch_channel:
-        description: '预取通道（hf-first / ms-first）'
+        description: '预取通道（ms-first 适配 EvalScope 默认 MS / hf-first）'
         required: false
-        default: 'hf-first'
+        default: 'ms-first'
 
 env:
   IMAGE_NAME: evalscope
@@ -94,7 +94,7 @@ jobs:
           PREFETCH="${{ github.event.inputs.prefetch_datasets }}"
           PREFETCH="${PREFETCH:-true}"
           CHANNEL="${{ github.event.inputs.prefetch_channel }}"
-          CHANNEL="${CHANNEL:-hf-first}"
+          CHANNEL="${CHANNEL:-ms-first}"
           echo "evalscope_version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "prefetch_datasets=$PREFETCH" >> "$GITHUB_OUTPUT"
           echo "prefetch_channel=$CHANNEL" >> "$GITHUB_OUTPUT"
