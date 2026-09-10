@@ -46,7 +46,6 @@ CORE_BENCHMARKS = {
     # 常识
     'hellaswag': ('evalscope/hellaswag', 'HellaSwag 常识'),
     'winogrande': ('AI-ModelScope/winogrande_val', 'Winogrande 常识'),
-    'truthful_qa': ('evalscope/truthful_qa', 'TruthfulQA 事实'),
     'commonsense_qa': ('extraordinarylab/commonsense-qa', 'CommonsenseQA'),
     # 指令遵循
     'ifeval': ('opencompass/ifeval', 'IFEval 指令遵循'),
@@ -112,16 +111,19 @@ def ms_download(dataset_id: str, cache_dir: str) -> bool:
 def hf_download(hf_id: str, hf_home: str, endpoint: str) -> bool:
     """HF 缓存下载（HF_HOME 布局），命中缓存则跳过。
 
-    注意：HF_ENDPOINT/HF_HOME 由 main 一次性设置（全局 env），本函数不再修改——
-    并发下载时多线程改全局 env 会互相覆盖（实测导致 HF 请求打到 modelscope 的错误）。
+    注意：HF_ENDPOINT/HF_HOME 由 main 一次性设置（全局 env），本函数不再修改。
+    注意：必须显式 `import huggingface_hub` 后取 snapshot_download——
+    同环境装了 modelscope[datasets] 会遮蔽 huggingface_hub 的顶层导出，
+    直接 `from huggingface_hub import snapshot_download` 可能拿到 modelscope 实现
+    （实测报 NotExistError/E3020 且 URL 指向 modelscope.cn）。
     """
     try:
-        from huggingface_hub import snapshot_download
+        import huggingface_hub
     except ImportError:
         print(f'  [warn] huggingface_hub 未安装，跳过 HF 通道: {hf_id}', flush=True)
         return False
     try:
-        snapshot_download(repo_id=hf_id, repo_type='dataset')
+        huggingface_hub.snapshot_download(repo_id=hf_id, repo_type='dataset')
         print(f'  [ok] HF: {hf_id} (endpoint={endpoint})', flush=True)
         return True
     except Exception as e:

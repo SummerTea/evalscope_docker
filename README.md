@@ -1,7 +1,7 @@
 # evalscope_docker
 
 自建 EvalScope（ModelScope 官方 LLM 评测框架）Docker 镜像工程。
-**镜像内置 17 个核心测试集（除多模态外全维度覆盖），内网完全离线可用，运行时可通过挂载覆盖**；GitHub Actions 自动构建并推送 GHCR + 阿里云 ACR。
+**镜像内置 16 个核心测试集（除多模态外全维度覆盖），内网完全离线可用，运行时可通过挂载覆盖**；GitHub Actions 自动构建并推送 GHCR + 阿里云 ACR。
 
 ## 特性
 
@@ -12,11 +12,11 @@
 | 依赖 | `evalscope[service]` = flask/plotly/perf（aiohttp/uvicorn/numpy），**无 torch**，纯 CPU 可跑 |
 | Agent 支持 | 内置 **τ²-bench** 运行依赖（tau2-bench@v0.2.0，airline/retail/telecom 客服域）+ **BFCL-v3**（函数调用）。τ²-bench **数据**走独立快照路径，运行时按需拉取或挂载（见下） |
 | 评测对象 | OpenAI 兼容 API（`EVALSCOPE_BASE_URL` 指向内网 vLLM/SGLang） |
-| 内置数据 | 17 个测试集（~1-2GB，除多模态外全维度：数学/中文/知识/推理/常识/指令/代码/函数调用） |
+| 内置数据 | 16 个测试集（~1-2GB，除多模态外全维度：数学/中文/知识/推理/常识/指令/代码/函数调用） |
 | 离线能力 | **纯内网零网络可用**（数据经 MODELSCOPE_CACHE 命中，实测缓存命中 2.3s vs 首次下载 20s） |
 | 数据覆盖 | 运行时挂载 `/data/datasets_cache` 即可覆盖内置（全量数据放宿主） |
 
-## 内置测试集（17 个，除多模态外全维度）
+## 内置测试集（16 个，除多模态外全维度）
 
 | 维度 | benchmark（EvalScope 名） | dataset_id（ModelScope） |
 |---|---|---|
@@ -24,7 +24,7 @@
 | 中文知识 | `ceval`（52 子集）/ `cmmlu`（67 子集） | `evalscope/ceval` / `evalscope/cmmlu` |
 | 通用知识 | `mmlu_pro` / `gpqa_diamond` | `TIGER-Lab/MMLU-Pro` / `AI-ModelScope/gpqa_diamond` |
 | 推理 | `bbh`（27 子集）/ `arc` / `agieval`（21 子集） | `evalscope/bbh` / `allenai/ai2_arc` / `opencompass/agieval` |
-| 常识 | `hellaswag` / `winogrande` / `truthful_qa` / `commonsense_qa` | `evalscope/hellaswag` / `AI-ModelScope/winogrande_val` / `evalscope/truthful_qa` / `extraordinarylab/commonsense-qa` |
+| 常识 | `hellaswag` / `winogrande` / `commonsense_qa` | `evalscope/hellaswag` / `AI-ModelScope/winogrande_val` / `extraordinarylab/commonsense-qa` |
 | 指令遵循 | `ifeval` | `opencompass/ifeval` |
 | 代码 | `humaneval` | `opencompass/humaneval` |
 | **Agent** | **`tau2_bench`**（客服 agent：数据运行时按需拉取或挂载，依赖已内置） | `evalscope/tau2-bench-data` |
