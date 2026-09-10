@@ -57,12 +57,20 @@ CORE_BENCHMARKS = {
     'bfcl_v3': ('AI-ModelScope/bfcl_v3', 'BFCL-v3 函数调用（17 子集）'),
 }
 
-# benchmark 名 -> 子集列表（取自 EvalScope adapter 的 subset_list，与运行时 subset_name 一致）。
-# 缺省（None）= 不传 subset_name（单子集/default 数据集）。
-# 关键（实测踩坑）：MsDataset.load 不传 subset_name 只缓存 default 子集，
-# 多子集数据集（ceval 52/cmmlu 67/bbh 27/agieval 21/arc 2/competition_math 5/
-# mmlu_pro 14/bfcl_v3 17）若不全量预取子集，运行时按 subset 加载必然 miss 联网。
+# benchmark 名 -> 预取策略
+# 关键（实测踩坑 + EvalScope adapter 源码实证）：
+# - 真多 config 数据集（MS 目录=subset）：运行时 load_subset 逐个传 subset_name，
+#   预取必须逐 subset 调用 MsDataset.load(subset_name=...) 才命中。
+# - reformat_subset=True（mmlu_pro/cmmlu/competition_math/bfcl_v3）：运行时只加载 default
+#   子集，再按数据列（category/level/multi_turn）重组出 subset——预取不传 subset_name 即可，
+#   传了反而不存在的 config 报错（'Level 1' 等）。
+# - 单 config 数据集（MS 平铺 parquet/jsonl）：预取不传 subset_name。
+# - 特殊：gsm8k 的 MS 有 main/socratic 两个 config（运行时 subset='main'）需显式 main；
+#   truthful_qa 的 MS 有 generation/multiple_choice（运行时 subset='multiple_choice'）；
+#   humaneval 的 MS 有 openai_humaneval（运行时 subset='openai_humaneval'）。
+# 缺省（None）= 不传 subset_name（default 数据集）。
 BENCHMARK_SUBSETS = {
+    # 真多 config（MS 目录=subset，运行时逐 subset 加载）
     'ceval': ['computer_network', 'operating_system', 'computer_architecture', 'college_programming',
               'college_physics', 'college_chemistry', 'advanced_mathematics', 'probability_and_statistics',
               'discrete_mathematics', 'electrical_engineer', 'metrology_engineer', 'high_school_mathematics',
@@ -77,24 +85,6 @@ BENCHMARK_SUBSETS = {
               'plant_protection', 'basic_medicine', 'clinical_medicine', 'urban_and_rural_planner',
               'accountant', 'fire_engineer', 'environmental_impact_assessment_engineer', 'tax_accountant',
               'physician'],
-    'cmmlu': ['agronomy', 'anatomy', 'ancient_chinese', 'arts', 'astronomy', 'business_ethics',
-              'chinese_civil_service_exam', 'chinese_driving_rule', 'chinese_food_culture',
-              'chinese_foreign_policy', 'chinese_history', 'chinese_literature', 'chinese_teacher_qualification',
-              'clinical_knowledge', 'college_actuarial_science', 'college_education', 'college_engineering_hydrology',
-              'college_law', 'college_mathematics', 'college_medical_statistics', 'college_medicine',
-              'computer_science', 'computer_security', 'conceptual_physics',
-              'construction_project_management', 'economics', 'education', 'electrical_engineering',
-              'elementary_chinese', 'elementary_commonsense', 'elementary_information_and_technology',
-              'elementary_mathematics', 'ethnology', 'food_science', 'genetics', 'global_facts',
-              'high_school_biology', 'high_school_chemistry', 'high_school_geography', 'high_school_mathematics',
-              'high_school_physics', 'high_school_politics', 'human_sexuality', 'international_law',
-              'journalism', 'jurisprudence', 'legal_and_moral_basis', 'logical', 'machine_learning',
-              'management', 'marketing', 'marxist_theory', 'modern_chinese', 'nutrition',
-              'philosophy', 'professional_accounting', 'professional_law', 'professional_medicine',
-              'professional_psychology', 'public_relations', 'security_study', 'sociology', 'sports_science',
-              'traditional_chinese_medicine', 'virology', 'world_history', 'world_religions'],
-    'mmlu_pro': ['computer science', 'math', 'chemistry', 'engineering', 'law', 'biology', 'health',
-                 'physics', 'business', 'philosophy', 'economics', 'other', 'psychology', 'history'],
     'bbh': ['temporal_sequences', 'disambiguation_qa', 'date_understanding',
             'tracking_shuffled_objects_three_objects', 'penguins_in_a_table', 'geometric_shapes', 'snarks',
             'ruin_names', 'tracking_shuffled_objects_seven_objects', 'tracking_shuffled_objects_five_objects',
@@ -104,17 +94,18 @@ BENCHMARK_SUBSETS = {
             'formal_fallacies', 'causal_judgement', 'web_of_lies', 'word_sorting', 'sports_understanding',
             'boolean_expressions', 'object_counting'],
     'arc': ['ARC-Easy', 'ARC-Challenge'],
+    # agieval：MS dev/test 目录内按 subset 组织（实测 MsDataset.load subset='aqua-rat' 可命中）
     'agieval': ['aqua-rat', 'logiqa-en', 'lsat-ar', 'lsat-lr', 'lsat-rc', 'sat-math', 'sat-en',
                 'sat-en-without-passage', 'gaokao-english', 'logiqa-zh', 'gaokao-chinese',
                 'gaokao-geography', 'gaokao-history', 'gaokao-biology', 'gaokao-chemistry',
                 'gaokao-physics', 'gaokao-mathqa', 'jec-qa-kd', 'jec-qa-ca', 'math', 'gaokao-mathcloze'],
-    'competition_math': ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Level 5'],
-    'bfcl_v3': ['simple', 'multiple', 'parallel', 'parallel_multiple', 'java', 'javascript',
-                'live_simple', 'live_multiple', 'live_parallel', 'live_parallel_multiple', 'irrelevance',
-                'live_relevance', 'live_irrelevance', 'multi_turn_base', 'multi_turn_miss_func',
-                'multi_turn_miss_param', 'multi_turn_long_context'],
+    # 特殊 config（MS 目录=subset，运行时显式 subset；实测可命中）
+    'gsm8k': ['main'],
     'truthful_qa': ['multiple_choice'],
     'humaneval': ['openai_humaneval'],
+    # reformat_subset=True（mmlu_pro/cmmlu/competition_math/bfcl_v3）：运行时只加载 default 子集，
+    # 按数据列（category/level/multi_turn）重组 subset——不传 subset_name（留空列表=跳过逐 subset）
+    # 单 config（MS 平铺，如 aime24/gpqa/hellaswag/winogrande/commonsense_qa/ifeval）：同 default
 }
 
 # MS 无时的 HF 兜底映射（EvalScope dataset_id -> HF repo）
@@ -169,7 +160,7 @@ def ms_download(dataset_id: str, cache_dir: str, subsets: Optional[list] = None)
         # val/dev/train 供 fewshot 用，缺失的自动跳过）
         splits = ['test', 'validation', 'val', 'dev', 'train']
         loaded_any = False
-        # 逐子集预取（与 EvalScope 运行时 subset_name 一致）；None = 不传 subset（default）
+        # 逐子集预取（与 EvalScope 运行时 subset_name 一致）；None/空 = 不传 subset（default）
         subset_list = subsets if subsets else [None]
         for subset in subset_list:
             for split in splits:
