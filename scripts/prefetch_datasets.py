@@ -143,6 +143,7 @@ def main():
     parser.add_argument('--datasets', default='', help='显式 benchmark 清单（逗号分隔，覆盖默认）')
     parser.add_argument('--datasets-file', default='', help='benchmark 清单文件（每行一个，# 注释）')
     parser.add_argument('--hf-endpoint', default='https://huggingface.co', help='HF 端点（内网可换 https://hf-mirror.com）')
+    parser.add_argument('--parallel', type=int, default=4, help='并发下载数（默认 4，数据集间无依赖可并行）')
     args = parser.parse_args()
 
     if args.datasets_file:
@@ -165,15 +166,35 @@ def main():
     def try_hf(hf_id):
         return hf_download(hf_id, hf_home, args.hf_endpoint)
 
-    ok, failed = [], []
-    for benchmark in benchmarks:
+    def download_one(benchmark):
+        """下载单个 benchmark（MS 优先或 HF 优先），返回 (benchmark, ok)。"""
         ms_id, hf_id = resolve_dataset_id(benchmark)
         print(f'===== {benchmark} (MS:{ms_id}) =====', flush=True)
         if args.channel == 'ms-first':
             done = try_ms(ms_id) or try_hf(hf_id)
         else:
             done = try_hf(hf_id) or try_ms(ms_id)
-        (ok if done else failed).append(benchmark)
+        return benchmark, done
+
+    # 并发下载（数据集间无依赖；Modelscope 库线程安全即可并行）
+    import concurrent.futures
+    max_workers = max(1, min(args.parallel, len(benchmarks)))
+    results = []
+    if len(benchmarks) == 1 or args.parallel <= 1:
+        for b in benchmarks:
+            results.append(download_one(b))
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(download_one, b): b for b in benchmarks}
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    results.append(fut.result())
+                except Exception as e:
+                    results.append((futures[fut], False))
+                    print(f'  [warn] {futures[fut]} 并发任务异常: {e}', flush=True)
+
+    ok = [b for b, done in results if done]
+    failed = [b for b, done in results if not done]
 
     print(f'\n=== 完成: OK={len(ok)} FAIL={len(failed)} ===')
     for f in failed:

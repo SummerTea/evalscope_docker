@@ -56,6 +56,7 @@ RUN if [ "${PREFETCH_DATASETS}" = "true" ]; then \
             --output /data/datasets_cache \
             --channel "${PREFETCH_CHANNEL}" \
             --hf-endpoint "${HF_ENDPOINT_BUILD}" \
+            --parallel 4 \
             ${DATASETS_EXTRA:+--datasets "${DATASETS_EXTRA}"}; \
     fi
 
