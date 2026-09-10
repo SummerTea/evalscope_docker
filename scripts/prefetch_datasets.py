@@ -197,6 +197,14 @@ def main():
                     results.append((futures[fut], False))
                     print(f'  [warn] {futures[fut]} 并发任务异常: {e}', flush=True)
 
+    # 失败项串行重试一次（modelscope MsDataset 并发不安全，串行可规避）
+    retry_failed = [b for b, done in results if not done]
+    if retry_failed:
+        print(f'\n=== 并发完成，{len(retry_failed)} 项失败，串行重试 ===', flush=True)
+        for b in retry_failed:
+            results = [(bb, dd) for bb, dd in results if bb != b]
+            results.append(download_one(b))
+
     ok = [b for b, done in results if done]
     failed = [b for b, done in results if not done]
 

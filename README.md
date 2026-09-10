@@ -1,7 +1,7 @@
 # evalscope_docker
 
 自建 EvalScope（ModelScope 官方 LLM 评测框架）Docker 镜像工程。
-**镜像内置 18 个核心测试集（除多模态外全维度覆盖），内网完全离线可用，运行时可通过挂载覆盖**；GitHub Actions 自动构建并推送 GHCR + 阿里云 ACR。
+**镜像内置 17 个核心测试集（除多模态外全维度覆盖），内网完全离线可用，运行时可通过挂载覆盖**；GitHub Actions 自动构建并推送 GHCR + 阿里云 ACR。
 
 ## 特性
 
@@ -16,7 +16,7 @@
 | 离线能力 | **纯内网零网络可用**（数据经 MODELSCOPE_CACHE 命中，实测缓存命中 2.3s vs 首次下载 20s） |
 | 数据覆盖 | 运行时挂载 `/data/datasets_cache` 即可覆盖内置（全量数据放宿主） |
 
-## 内置测试集（18 个，除多模态外全维度）
+## 内置测试集（17 个，除多模态外全维度）
 
 | 维度 | benchmark（EvalScope 名） | dataset_id（ModelScope） |
 |---|---|---|
