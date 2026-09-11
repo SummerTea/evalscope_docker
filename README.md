@@ -111,23 +111,31 @@ docker rm -f evalscope
 docker exec evalscope evalscope eval \
   --model-id Qwen3.8-27B --eval-type openai_api \
   --api-url http://10.1.251.230:8000/v1 --api-key EMPTY \
-  --datasets gsm8k --limit 5
+  --datasets gsm8k --limit 5 \
+  --no-timestamp --work-dir /data/outputs/smoke_gsm8k
 
-# 多数据集一次评测
+# 多数据集一次评测（17 内置测试集全量，limit=5 约 15-20 分钟）
 docker exec evalscope evalscope eval \
   --model-id Qwen3.8-27B --eval-type openai_api \
   --api-url http://10.1.251.230:8000/v1 --api-key EMPTY \
-  --datasets gsm8k ceval bbh --limit 100
+  --datasets gsm8k aime24 competition_math ceval cmmlu mmlu_pro gpqa_diamond \
+             bbh arc agieval hellaswag winogrande truthful_qa commonsense_qa \
+             ifeval humaneval bfcl_v3 \
+  --limit 5 \
+  --no-timestamp --work-dir /data/outputs/full_smoke
 
-# 全量正式评测（不加 --limit；ceval 52 子集会较久）
-docker exec evalscope evalscope eval \
-  --model-id Qwen3.8-27B --eval-type openai_api \
-  --api-url http://10.1.251.230:8000/v1 --api-key EMPTY \
-  --datasets gsm8k
-
-# 指定输出目录（默认 EVALSCOPE_OUTPUTS_DIR=/data/outputs）
-# 结果落在 <work_dir>/<timestamp>/{reports,predictions,reviews,configs,logs}/
+# 全量正式评测（不加 --limit；ceval 52 子集 / aime24 长推理链会较久）
 ```
+
+**CLI 结果让 Web 页面可见的关键**（`--no-timestamp` + work-dir 命名规则）：
+
+页面（dashboard / Reports）扫描磁盘结构 `<outputs>/<run_id>/reports/<model>/`，CLI 必须：
+
+1. **加 `--no-timestamp`**——否则报告落在 `<work_dir>/<timestamp>/reports/`，多套一层时间戳目录，扫描器找不到
+2. **`--work-dir` 必须是 `/data/outputs/` 下的命名子目录**（如 `/data/outputs/my_task`）——不能直接写 `/data/outputs`（那样报告落到 `/data/outputs/reports/`，缺 run_id 层，同样扫不到）
+3. 每次用**新的任务名**（`--no-timestamp` 后同名目录会直接覆盖旧结果）
+
+满足上述条件，CLI 跑完刷新 dashboard 即可看到该任务。**Web 提交的任务**（`/data/outputs/<task_id>/reports/`）天然符合此结构，无需额外参数。
 
 ### 数据集与离线验证
 
@@ -147,6 +155,23 @@ docker exec evalscope python3 -c \
 - **入口**：`http://<host>:9000`
 - **评测对象**：容器启动时 `EVALSCOPE_BASE_URL` 指向的模型（也可界面内填 API 端点）
 - **内置能力**：任务提交、报告查看、ComparePage（双模型/双方案 delta 对比）、PerfComparePage（性能对比）、Arena
+
+**任务可见性机制**（1.11.1 行为，源码实证）：
+- **dashboard / Reports 页只显示已完成的报告**——磁盘扫描 `<outputs>/<run_id>/reports/<model>/`，运行中任务不显示
+- **运行中任务的进度/日志**在**提交任务的页面**实时看（5s 轮询 `/api/v1/eval/progress`，前端内存态，**刷新页面即丢失**）
+- 所以：长任务期间别刷新提交页；跑完的报告刷新 dashboard 即可见
+- 多数据集提交时注意：**已完成的子集报告会先落盘**，dashboard 会随进度逐个出现
+
+**Web 提交注意事项**：
+- **模型名不要带尾随空格**（如 `Qwen3.8-27B`，别填 `Qwen3.8-27B `，会 404）
+- **批大小（eval_batch_size）**：填默认 `8` 即可。实测并发 1/8/32 总时长几乎无差异（瓶颈在 vLLM 单请求推理 + 数据集加载），调大不会更快
+- **limit 是全局的**：一次提交多数据集时对所有数据集生效（ceval 52 子集 × limit 会显著放大耗时）
+
+**时间参考**（Qwen3.8-27B @ A800 vLLM，实测）：
+- gsm8k limit=10 ≈ 17s；bfcl_v3 limit=5 ≈ 27s；mmlu_pro limit=10 ≈ 22s；ifeval limit=10 ≈ 21s
+- bbh limit=10 ≈ 107s（27 子集）；humaneval limit=10 ≈ 167s（代码长输出）
+- **ceval limit=5 ≈ 6 分钟**（52 子集 × 固定加载开销，时间黑洞）
+- **aime24/competition_math**：27B 长数学推理链，单条 46-73s 且打满 max_tokens，易触发 openai 客户端 600s 读超时——建议 limit≤2 或从 30 分钟测试集里剔除
 
 ## 构建参数
 
