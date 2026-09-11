@@ -222,7 +222,7 @@ docker compose up -d     # docker-compose.yml 已配好挂载与环境变量
 
 EvalScope 通过 OpenAI 兼容 API 评测（`EVALSCOPE_BASE_URL` 指向 vLLM/SGLang）。**不同测试集对 vLLM 服务端有不同要求**，参数不全会导致评测失败（实测踩坑）。
 
-### 7.1 推荐启动命令（Qwen3.8-27B @ A800 实测）
+### 7.1 推荐启动命令（Qwen3.8-27B @ A800 实测，贴合 OpenAI 规范）
 
 ```bash
 docker run -d --name vllm --gpus device=1 -p 8000:8000 \
@@ -234,12 +234,13 @@ docker run -d --name vllm --gpus device=1 -p 8000:8000 \
   --served-model-name Qwen3.8-27B \
   --enable-prefix-caching --no-enable-log-requests \
   --gpu-memory-utilization 0.92 --max-model-len 131072 --max-num-seqs 256 --trust-remote-code \
-  --enable-auto-tool-choice --tool-call-parser qwen3_xml
+  --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+  --enable-prompt-tokens-details --enable-per-request-metrics --max-logprobs 20
 ```
 
 ### 7.2 各参数的作用与必要性（按测试集）
 
-| 参数 | 必要性 | 支撑的测试集 |
+| 参数 | 必要性 | 支撑的测试集 / 场景 |
 |---|---|---|
 | `--enable-auto-tool-choice --tool-call-parser <parser>` | **必须**（bfcl_v3 等函数调用） | `bfcl_v3`（agent 工具调用） |
 | `--enable-prefix-caching` | 强烈建议（多请求共享前缀加速，实测显著提速） | 全部（尤其选择题多子集） |
@@ -247,6 +248,21 @@ docker run -d --name vllm --gpus device=1 -p 8000:8000 \
 | `--max-num-seqs 256` | 高并发批处理 | 全部 |
 | `--trust-remote-code` | 自定义模型代码 | 全部 |
 | `--gpu-memory-utilization 0.92` | 显存利用率 | 全部 |
+
+### 7.3 贴合 OpenAI 规范的参数（兼容性增强，可选）
+
+以下参数让 vLLM 响应更贴近 OpenAI 官方 API 行为，**不影响评测正确性**，按需开启：
+
+| 参数 | 作用 | 响应中的体现 |
+|---|---|---|
+| `--enable-prompt-tokens-details` | usage 中返回前缀缓存命中详情 | `usage.prompt_tokens_details.cached_tokens`（命中 token 数）/ `created_cache_tokens`（新写入数）——可验证 prefix caching 生效 |
+| `--max-logprobs 20` | 支持 `logprobs`/`top_logprobs` 请求参数 | 响应 `choices[].logprobs`（OpenAI 规范字段） |
+| `--enable-per-request-metrics` | 每请求返回延迟/吞吐指标 | 响应 extra 字段（评测 perf 分析用） |
+| `--enable-force-include-usage` | **所有**请求（含流式）都返回 usage | 流式响应每个 chunk 的 `usage` 字段（OpenAI 流式规范要求） |
+| `--api-key <key>` | 服务端鉴权（贴合 OpenAI 需认证场景） | 无请求需带 `Authorization: Bearer <key>` |
+| `--served-model-name <name>` | 模型对外名称（默认取路径 basename） | `/v1/models` 的 `data[].id` |
+
+> **实测**：`--enable-prompt-tokens-details` 需 vLLM ≥0.5.x（字段名稳定）；`cached_tokens>0` 即确认前缀缓存命中。
 
 **tool-call-parser 选择**（vLLM v0.28.0 实测支持列表）：
 - **Qwen3 系列 → `qwen3_xml`**（Qwen3 原生 XML 工具格式）或 `qwen3_coder`（代码模型）
@@ -256,13 +272,14 @@ docker run -d --name vllm --gpus device=1 -p 8000:8000 \
 > ⚠️ **实测踩坑**：vLLM 未开 `--enable-auto-tool-choice` 时，bfcl_v3 提交即失败：
 > `400 '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set'`
 
-### 7.3 评测端注意（与 vLLM 配合）
+### 7.4 评测端注意（与 vLLM 配合）
 
 - **humaneval 代码执行**：需 EvalScope 侧 sandbox（`use_sandbox`，Docker 执行 Python），与 vLLM 无关
 - **aime24/competition_math 长推理**：27B 单条 46-73s 且打满 max_tokens，建议 limit≤2 或剔除
 - **并发批大小**：`--max-num-seqs` 给足即可，EvalScope 侧 `eval_batch_size=8` 默认即可（实测并发提升无额外收益）
+- **logprobs**：若评测任务需 `logprobs`（如部分打分类评测），服务端需 `--max-logprobs N` 配合
 
-### 7.4 GPU 驱动 mismatch 排查（宿主机）
+### 7.5 GPU 驱动 mismatch 排查（宿主机）
 
 **症状**：`nvidia-smi` 报 `Failed to initialize NVML: Driver/library version mismatch`；起新 GPU 容器报 `nvml error: driver/library version mismatch`。
 
@@ -290,7 +307,7 @@ sudo modprobe nvidia && nvidia-smi   # 确认版本一致
 
 ## 八、数据集机制（重要，实测验证）
 
-### 7.1 加载路径
+### 8.1 加载路径
 
 EvalScope 数据集加载（源码实证 `evalscope/api/dataset/hub.py` + 实测）：
 
@@ -301,7 +318,7 @@ dataset_hub=HUGGINGFACE -> datasets.load_dataset(id)，命中 HF_HOME（镜像�
 dataset_id 是本地路径    -> os.path.exists 命中即本地读取，零网络
 ```
 
-### 7.2 离线命中的关键（踩坑记录）
+### 8.2 离线命中的关键（踩坑记录）
 
 1. 构建期预下载必须用 **`MsDataset.load`**（与运行时同调用路径），不能 `dataset_snapshot_download`
 2. 预下载**不能传 `cache_dir`**——必须依赖 `MODELSCOPE_CACHE` env，让落盘布局（`<cache>/datasets/<org>___<name>/`）与运行时完全一致
@@ -312,7 +329,7 @@ dataset_id 是本地路径    -> os.path.exists 命中即本地读取，零网�
 - **离线**：纯内网 `HF_HUB_OFFLINE=1` + 内置数据，完全零网络
 - **不用 HF 兜底**：HF `snapshot_download` 落盘 `<hf_home>/datasets/<org>__<name>/`，而 EvalScope 运行时查 `MODELSCOPE_CACHE/datasets/<org>___<name>/`（hub.py 不传 cache_dir）——布局不兼容必然 miss，故内置清单只走 MS 通道
 
-### 7.3 预取策略（构建期 `scripts/prefetch_datasets.py`）
+### 8.3 预取策略（构建期 `scripts/prefetch_datasets.py`）
 
 按运行时加载语义区分（A800 全量冒烟实证 17/17 通过）：
 
