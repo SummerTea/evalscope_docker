@@ -17,7 +17,11 @@
 | 离线能力 | **纯内网零网络可用**（数据经 MODELSCOPE_CACHE 命中，实测缓存命中 2.3s vs 首次下载 20s） |
 | 数据覆盖 | 运行时挂载 `/data/datasets_cache` 即可覆盖内置（全量数据放宿主） |
 
-## 内置测试集（17 个，除多模态外全维度）
+---
+
+## 一、内置数据集（17 个，除多模态外全维度）
+
+### 1.1 一览表
 
 | 维度 | benchmark（EvalScope 名） | dataset_id（ModelScope） |
 |---|---|---|
@@ -33,9 +37,7 @@
 
 > 多模态（vlm）/图像/视频/音频测试集不内置（镜像体积约束），需时挂载或按需拉取。
 
-## 数据集能力说明（17 个内置测试集）
-
-能力来源：EvalScope 1.11.1 adapter 源码（`evalscope/benchmarks/<name>/`）实证，含子集数、评估 split、few-shot 配置。
+### 1.2 能力说明（来源：EvalScope 1.11.1 adapter 源码实证）
 
 | benchmark | 评估能力 | 规模 / 格式 | 子集与 split | few-shot | 备注 |
 |---|---|---|---|---|---|
@@ -57,13 +59,9 @@
 | `humaneval` | 代码生成（HumanEval） | 164 题 | subset=`openai_humaneval`；eval=test | 0-shot | Python 函数补全 |
 | `bfcl_v3` | 函数调用（BFCL-v3） | 17 子集，2k+ 场景 | 17 子集（simple/multiple/parallel/live/multi_turn…）；eval=train | 0-shot | 函数调用/工具使用（依赖 bfcl-eval+soundfile，已内置） |
 
-**预取策略说明**（构建期 `scripts/prefetch_datasets.py` 按运行时加载语义区分，A800 全量冒烟实证 17/17 通过）：
-- **真多 config**（ceval 52 / bbh 27 / agieval 21 / arc 2）：MS 目录 = subset，逐 subset 预取，运行时 `MsDataset.load(subset_name=...)` 命中
-- **reformat 数据集**（cmmlu / mmlu_pro / competition_math / bfcl_v3）：MS 单 config，运行时只加载 default 再按数据列（category/level/multi_turn）分组——预取不传 subset_name
-- **特殊 config**（gsm8k=`main` / truthful_qa=`multiple_choice` / humaneval=`openai_humaneval`）：显式预取该 config
-- **单 config 平铺**（aime24 / gpqa_diamond / hellaswag / winogrande / commonsense_qa / ifeval）：预取 default
+---
 
-## 快速开始
+## 二、快速开始
 
 ```bash
 # 1. GitHub Actions 自动构建（push main 即触发），产物：
@@ -83,28 +81,34 @@ docker run -d -p 9000:9000 \
 # 4. 打开 Web 界面 http://<host>:9000
 ```
 
-## 常用命令
+---
 
-### 容器运维
+## 三、使用指南
 
-```bash
-# 拉取最新镜像（ACR 间歇性拒绝，失败重试即可）
-docker pull registry.cn-shanghai.aliyuncs.com/luckfu/evalscope:latest
+### 3.1 Web 界面
 
-# 启动（指定被测模型端点）
-docker run -d --name evalscope -p 9000:9000 \
-  -e EVALSCOPE_BASE_URL=http://10.1.251.230:8000/v1 \
-  -e EVALSCOPE_API_KEY=EMPTY \
-  -v /nfsdata/eval_platform/outputs:/data/outputs \
-  registry.cn-shanghai.aliyuncs.com/luckfu/evalscope:latest
+- **入口**：`http://<host>:9000`
+- **评测对象**：容器启动时 `EVALSCOPE_BASE_URL` 指向的模型（也可界面内填 API 端点）
+- **内置能力**：任务提交、报告查看、ComparePage（双模型/双方案 delta 对比）、PerfComparePage（性能对比）、Arena
 
-# 进入容器 / 看日志 / 停止
-docker exec -it evalscope bash
-docker logs -f evalscope
-docker rm -f evalscope
-```
+**任务可见性机制**（1.11.1 行为，源码实证）：
+- **dashboard / Reports 页只显示已完成的报告**——磁盘扫描 `<outputs>/<run_id>/reports/<model>/`，运行中任务不显示
+- **运行中任务的进度/日志**在**提交任务的页面**实时看（5s 轮询 `/api/v1/eval/progress`，前端内存态，**刷新页面即丢失**）
+- 所以：长任务期间别刷新提交页；跑完的报告刷新 dashboard 即可见
+- 多数据集提交时注意：**已完成的子集报告会先落盘**，dashboard 会随进度逐个出现
 
-### 评测（evalscope CLI，OpenAI 兼容 API 模式）
+**Web 提交注意事项**：
+- **模型名不要带尾随空格**（如 `Qwen3.8-27B`，别填 `Qwen3.8-27B `，会 404）
+- **批大小（eval_batch_size）**：填默认 `8` 即可。实测并发 1/8/32 总时长几乎无差异（瓶颈在 vLLM 单请求推理 + 数据集加载），调大不会更快
+- **limit 是全局的**：一次提交多数据集时对所有数据集生效（ceval 52 子集 × limit 会显著放大耗时）
+
+**时间参考**（Qwen3.8-27B @ A800 vLLM，实测）：
+- gsm8k limit=10 ≈ 17s；bfcl_v3 limit=5 ≈ 27s；mmlu_pro limit=10 ≈ 22s；ifeval limit=10 ≈ 21s
+- bbh limit=10 ≈ 107s（27 子集）；humaneval limit=10 ≈ 167s（代码长输出）
+- **ceval limit=5 ≈ 6 分钟**（52 子集 × 固定加载开销，时间黑洞）
+- **aime24/competition_math**：27B 长数学推理链，单条 46-73s 且打满 max_tokens，易触发 openai 客户端 600s 读超时——建议 limit≤2 或从 30 分钟测试集里剔除
+
+### 3.2 CLI 评测（OpenAI 兼容 API 模式）
 
 ```bash
 # 单数据集冒烟（limit 少量样本快速验证）
@@ -137,7 +141,7 @@ docker exec evalscope evalscope eval \
 
 满足上述条件，CLI 跑完刷新 dashboard 即可看到该任务。**Web 提交的任务**（`/data/outputs/<task_id>/reports/`）天然符合此结构，无需额外参数。
 
-### 数据集与离线验证
+### 3.3 数据集与离线验证
 
 ```bash
 # 查看内置数据集缓存（MS 布局：<cache>/datasets/<org>___<name>/）
@@ -150,30 +154,41 @@ docker exec evalscope python3 -c \
 # 断网离线（纯内网）：容器内加载走 MODELSCOPE_CACHE，零网络
 ```
 
-### Web 界面
+---
 
-- **入口**：`http://<host>:9000`
-- **评测对象**：容器启动时 `EVALSCOPE_BASE_URL` 指向的模型（也可界面内填 API 端点）
-- **内置能力**：任务提交、报告查看、ComparePage（双模型/双方案 delta 对比）、PerfComparePage（性能对比）、Arena
+## 四、容器运维
 
-**任务可见性机制**（1.11.1 行为，源码实证）：
-- **dashboard / Reports 页只显示已完成的报告**——磁盘扫描 `<outputs>/<run_id>/reports/<model>/`，运行中任务不显示
-- **运行中任务的进度/日志**在**提交任务的页面**实时看（5s 轮询 `/api/v1/eval/progress`，前端内存态，**刷新页面即丢失**）
-- 所以：长任务期间别刷新提交页；跑完的报告刷新 dashboard 即可见
-- 多数据集提交时注意：**已完成的子集报告会先落盘**，dashboard 会随进度逐个出现
+```bash
+# 拉取最新镜像（ACR 间歇性拒绝，失败重试即可）
+docker pull registry.cn-shanghai.aliyuncs.com/luckfu/evalscope:latest
 
-**Web 提交注意事项**：
-- **模型名不要带尾随空格**（如 `Qwen3.8-27B`，别填 `Qwen3.8-27B `，会 404）
-- **批大小（eval_batch_size）**：填默认 `8` 即可。实测并发 1/8/32 总时长几乎无差异（瓶颈在 vLLM 单请求推理 + 数据集加载），调大不会更快
-- **limit 是全局的**：一次提交多数据集时对所有数据集生效（ceval 52 子集 × limit 会显著放大耗时）
+# 启动（指定被测模型端点）
+docker run -d --name evalscope -p 9000:9000 \
+  -e EVALSCOPE_BASE_URL=http://10.1.251.230:8000/v1 \
+  -e EVALSCOPE_API_KEY=EMPTY \
+  -v /nfsdata/eval_platform/outputs:/data/outputs \
+  registry.cn-shanghai.aliyuncs.com/luckfu/evalscope:latest
 
-**时间参考**（Qwen3.8-27B @ A800 vLLM，实测）：
-- gsm8k limit=10 ≈ 17s；bfcl_v3 limit=5 ≈ 27s；mmlu_pro limit=10 ≈ 22s；ifeval limit=10 ≈ 21s
-- bbh limit=10 ≈ 107s（27 子集）；humaneval limit=10 ≈ 167s（代码长输出）
-- **ceval limit=5 ≈ 6 分钟**（52 子集 × 固定加载开销，时间黑洞）
-- **aime24/competition_math**：27B 长数学推理链，单条 46-73s 且打满 max_tokens，易触发 openai 客户端 600s 读超时——建议 limit≤2 或从 30 分钟测试集里剔除
+# 进入容器 / 看日志 / 停止
+docker exec -it evalscope bash
+docker logs -f evalscope
+docker rm -f evalscope
+```
 
-## 构建参数
+## 五、内网部署
+
+```bash
+docker compose up -d     # docker-compose.yml 已配好挂载与环境变量
+```
+
+半内网（可访问 hf-mirror）：设 `HF_ENDPOINT=https://hf-mirror.com`，运行时按需下载未内置数据。
+纯内网：内置 17 测试集开箱即用；更多数据挂载 `/data/datasets_cache` 覆盖 + `HF_HUB_OFFLINE=1`。
+
+---
+
+## 六、构建镜像
+
+### 6.1 构建参数
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
@@ -187,7 +202,7 @@ docker exec evalscope python3 -c \
 > **依赖安装用 uv**（Rust 实现，pip 10-50x）：`uv pip install` 并行下载 + 极速解析，
 > 配合 workflow 的 `cache-from: type=gha` 依赖层缓存，二次构建大幅提速。
 
-## GitHub Actions 构建
+### 6.2 GitHub Actions 构建
 
 `.github/workflows/docker-build.yml`：
 
@@ -201,7 +216,11 @@ docker exec evalscope python3 -c \
 > ⚠️ **官方 runner 磁盘 ~14GB**：内置数据仅限精选核心集 ~1-2GB；
 > 全量数据（20-40GB+）请运行时挂载 `/data/datasets_cache` 覆盖。
 
-## 数据集机制（重要，实测验证）
+---
+
+## 七、数据集机制（重要，实测验证）
+
+### 7.1 加载路径
 
 EvalScope 数据集加载（源码实证 `evalscope/api/dataset/hub.py` + 实测）：
 
@@ -212,7 +231,8 @@ dataset_hub=HUGGINGFACE -> datasets.load_dataset(id)，命中 HF_HOME（镜像�
 dataset_id 是本地路径    -> os.path.exists 命中即本地读取，零网络
 ```
 
-**离线命中的关键**（踩坑记录）：
+### 7.2 离线命中的关键（踩坑记录）
+
 1. 构建期预下载必须用 **`MsDataset.load`**（与运行时同调用路径），不能 `dataset_snapshot_download`
 2. 预下载**不能传 `cache_dir`**——必须依赖 `MODELSCOPE_CACHE` env，让落盘布局（`<cache>/datasets/<org>___<name>/`）与运行时完全一致
 3. 实测：构建期缓存 + 运行时同路径 → 第二次加载 2.3s（命中）；路径不一致 → 永远 miss 联网下载
@@ -222,13 +242,13 @@ dataset_id 是本地路径    -> os.path.exists 命中即本地读取，零网�
 - **离线**：纯内网 `HF_HUB_OFFLINE=1` + 内置数据，完全零网络
 - **不用 HF 兜底**：HF `snapshot_download` 落盘 `<hf_home>/datasets/<org>__<name>/`，而 EvalScope 运行时查 `MODELSCOPE_CACHE/datasets/<org>___<name>/`（hub.py 不传 cache_dir）——布局不兼容必然 miss，故内置清单只走 MS 通道
 
+### 7.3 预取策略（构建期 `scripts/prefetch_datasets.py`）
+
+按运行时加载语义区分（A800 全量冒烟实证 17/17 通过）：
+
+- **真多 config**（ceval 52 / bbh 27 / agieval 21 / arc 2）：MS 目录 = subset，逐 subset 预取，运行时 `MsDataset.load(subset_name=...)` 命中
+- **reformat 数据集**（cmmlu / mmlu_pro / competition_math / bfcl_v3）：MS 单 config，运行时只加载 default 再按数据列（category/level/multi_turn）分组——预取不传 subset_name
+- **特殊 config**（gsm8k=`main` / truthful_qa=`multiple_choice` / humaneval=`openai_humaneval`）：显式预取该 config
+- **单 config 平铺**（aime24 / gpqa_diamond / hellaswag / winogrande / commonsense_qa / ifeval）：预取 default
+
 自定义预取清单：`--datasets "gsm8k,ceval"`（EvalScope benchmark 名）或 `--datasets-file list.txt`。
-
-## 内网部署
-
-```bash
-docker compose up -d     # docker-compose.yml 已配好挂载与环境变量
-```
-
-半内网（可访问 hf-mirror）：设 `HF_ENDPOINT=https://hf-mirror.com`，运行时按需下载未内置数据。
-纯内网：内置 17 测试集开箱即用；更多数据挂载 `/data/datasets_cache` 覆盖 + `HF_HUB_OFFLINE=1`。
