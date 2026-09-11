@@ -73,7 +73,10 @@ ENV PYTHONUNBUFFERED=1 \
     UV_NO_CACHE=1 \
     UV_INDEX_URL=${PIP_INDEX_URL} \
     # 评测结果与数据集缓存统一放 /data（运行时挂载卷）
+    # 注意：EVALSCOPE_OUTPUT_DIR（Web 任务写入路径）与 EVALSCOPE_OUTPUTS_DIR（列表扫描路径）
+    # 是两个不同变量——必须都指向同一目录，否则 Web 提交的任务在 /tasks 列表看不到
     EVALSCOPE_OUTPUTS_DIR=/data/outputs \
+    EVALSCOPE_OUTPUT_DIR=/data/outputs \
     HF_HOME=/data/datasets_cache/hf_home \
     MODELSCOPE_CACHE=/data/datasets_cache \
     EVALSCOPE_BASE_URL="" \
