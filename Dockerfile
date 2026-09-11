@@ -83,9 +83,12 @@ WORKDIR /app
 
 # 用 uv 安装 EvalScope（含 web service 前端产物）
 # extras: service=Web/对比/Perf 平台；ifeval=指令遵循评测(langdetect+nltk)；bfcl=函数调用评测(bfcl-eval)
+# 注意：bfcl_eval 的 AST eval checker 间接依赖 soundfile（音频评估），evalscope[bfcl] 未包含，
+# 需显式补装（A800 冒烟实测 bfcl_v3 报 No module named 'soundfile'）
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --python /usr/local/bin/python \
-    "evalscope[service,ifeval,bfcl]==${EVALSCOPE_VERSION}"
+    "evalscope[service,ifeval,bfcl]==${EVALSCOPE_VERSION}" \
+    "soundfile"
 
 # 预下载 NLTK 词表数据（ifeval 评测依赖 punkt_tab 句子切分；内网无法联网下载，
 # 必须在构建期（GitHub Actions 外网可达）灌入镜像 ~/nltk_data，运行时离线命中）
