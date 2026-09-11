@@ -33,6 +33,36 @@
 
 > 多模态（vlm）/图像/视频/音频测试集不内置（镜像体积约束），需时挂载或按需拉取。
 
+## 数据集能力说明（17 个内置测试集）
+
+能力来源：EvalScope 1.11.1 adapter 源码（`evalscope/benchmarks/<name>/`）实证，含子集数、评估 split、few-shot 配置。
+
+| benchmark | 评估能力 | 规模 / 格式 | 子集与 split | few-shot | 备注 |
+|---|---|---|---|---|---|
+| `gsm8k` | 小学数学推理 | 8.5k 题，main/socratic | subset=`main`；eval=test, train=train | 4-shot | 经典数学题，答案数字 |
+| `aime24` | 竞赛数学（AIME-2024） | 30 题 | eval=test | 0-shot | 高难度竞赛题 |
+| `competition_math` | 竞赛数学（MATH） | 12.5k 题，5 难度等级 | 单 config；按 `level` 列分组 Level 1-5；eval=test, train=train | 4-shot | reformat 数据集，输出 `\boxed{}` 答案 |
+| `ceval` | 中文知识（C-Eval） | 52 科目，~13k 题 | 52 子集（科目）；eval=val, train=dev | 5-shot | 小学到专业级中文选择题 |
+| `cmmlu` | 中文知识（CMMLU） | 67 科目 | 单 config；按 `category` 列分组；eval=test, train=dev | 0-shot | 67 中文领域选择题 |
+| `mmlu_pro` | 通用知识（MMLU-Pro） | 14 学科，~12k 题 | 14 子集；eval=test, train=validation | 5-shot | 多学科选择题，干扰项更多 |
+| `gpqa_diamond` | 科学推理（GPQA-Diamond） | 198 题 | eval=train（仅 train split） | 0-shot | 专家级科学多选题 |
+| `bbh` | 综合推理（BBH） | 27 子集，~6.5k 题 | 27 子集；eval=test | 3-shot | 多选+自由格式混合推理 |
+| `arc` | 科学推理（ARC） | ARC-Easy/Challenge 2 子集 | 2 子集；eval=test, train=train | 0-shot | 小学科学题，Challenge 更硬 |
+| `agieval` | 综合推理（AGIEval，中英） | 21 子集 | 21 子集；eval=test, train=dev | 0-shot | 高考/LSAT/SAT/GRE 风格 |
+| `hellaswag` | 常识推理（HellaSwag） | 10k 样本 | eval=validation | 0-shot | 句子补全常识题 |
+| `winogrande` | 常识消歧（Winogrande） | 1.3k 样本 | eval=validation | 0-shot | 代词消歧 |
+| `truthful_qa` | 事实性（TruthfulQA） | 817 题，MC1/MC2 | subset=`multiple_choice`；eval=validation | 0-shot | 检测模型是否传播误解，`multiple_correct=True` 切 MC2 |
+| `commonsense_qa` | 常识问答（CommonsenseQA） | 9.7k 题 | eval=validation | 0-shot | 常识多选题 |
+| `ifeval` | 指令遵循（IFEval） | 541 题，25 类指令 | eval=train | 0-shot | 逐指令可验证（依赖 langdetect+nltk punkt_tab，已内置） |
+| `humaneval` | 代码生成（HumanEval） | 164 题 | subset=`openai_humaneval`；eval=test | 0-shot | Python 函数补全 |
+| `bfcl_v3` | 函数调用（BFCL-v3） | 17 子集，2k+ 场景 | 17 子集（simple/multiple/parallel/live/multi_turn…）；eval=train | 0-shot | 函数调用/工具使用（依赖 bfcl-eval+soundfile，已内置） |
+
+**预取策略说明**（构建期 `scripts/prefetch_datasets.py` 按运行时加载语义区分，A800 全量冒烟实证 17/17 通过）：
+- **真多 config**（ceval 52 / bbh 27 / agieval 21 / arc 2）：MS 目录 = subset，逐 subset 预取，运行时 `MsDataset.load(subset_name=...)` 命中
+- **reformat 数据集**（cmmlu / mmlu_pro / competition_math / bfcl_v3）：MS 单 config，运行时只加载 default 再按数据列（category/level/multi_turn）分组——预取不传 subset_name
+- **特殊 config**（gsm8k=`main` / truthful_qa=`multiple_choice` / humaneval=`openai_humaneval`）：显式预取该 config
+- **单 config 平铺**（aime24 / gpqa_diamond / hellaswag / winogrande / commonsense_qa / ifeval）：预取 default
+
 ## 快速开始
 
 ```bash
@@ -52,6 +82,71 @@ docker run -d -p 9000:9000 \
 
 # 4. 打开 Web 界面 http://<host>:9000
 ```
+
+## 常用命令
+
+### 容器运维
+
+```bash
+# 拉取最新镜像（ACR 间歇性拒绝，失败重试即可）
+docker pull registry.cn-shanghai.aliyuncs.com/luckfu/evalscope:latest
+
+# 启动（指定被测模型端点）
+docker run -d --name evalscope -p 9000:9000 \
+  -e EVALSCOPE_BASE_URL=http://10.1.251.230:8000/v1 \
+  -e EVALSCOPE_API_KEY=EMPTY \
+  -v /nfsdata/eval_platform/outputs:/data/outputs \
+  registry.cn-shanghai.aliyuncs.com/luckfu/evalscope:latest
+
+# 进入容器 / 看日志 / 停止
+docker exec -it evalscope bash
+docker logs -f evalscope
+docker rm -f evalscope
+```
+
+### 评测（evalscope CLI，OpenAI 兼容 API 模式）
+
+```bash
+# 单数据集冒烟（limit 少量样本快速验证）
+docker exec evalscope evalscope eval \
+  --model-id Qwen3.8-27B --eval-type openai_api \
+  --api-url http://10.1.251.230:8000/v1 --api-key EMPTY \
+  --datasets gsm8k --limit 5
+
+# 多数据集一次评测
+docker exec evalscope evalscope eval \
+  --model-id Qwen3.8-27B --eval-type openai_api \
+  --api-url http://10.1.251.230:8000/v1 --api-key EMPTY \
+  --datasets gsm8k ceval bbh --limit 100
+
+# 全量正式评测（不加 --limit；ceval 52 子集会较久）
+docker exec evalscope evalscope eval \
+  --model-id Qwen3.8-27B --eval-type openai_api \
+  --api-url http://10.1.251.230:8000/v1 --api-key EMPTY \
+  --datasets gsm8k
+
+# 指定输出目录（默认 EVALSCOPE_OUTPUTS_DIR=/data/outputs）
+# 结果落在 <work_dir>/<timestamp>/{reports,predictions,reviews,configs,logs}/
+```
+
+### 数据集与离线验证
+
+```bash
+# 查看内置数据集缓存（MS 布局：<cache>/datasets/<org>___<name>/）
+docker exec evalscope ls /data/datasets_cache/datasets/
+
+# 验证某个数据集离线命中（应 <5s，无网络下载日志）
+docker exec evalscope python3 -c \
+  "from modelscope.msdatasets import MsDataset; d=MsDataset.load(dataset_name='AI-ModelScope/gsm8k', split='test'); print('rows:', len(d))"
+
+# 断网离线（纯内网）：容器内加载走 MODELSCOPE_CACHE，零网络
+```
+
+### Web 界面
+
+- **入口**：`http://<host>:9000`
+- **评测对象**：容器启动时 `EVALSCOPE_BASE_URL` 指向的模型（也可界面内填 API 端点）
+- **内置能力**：任务提交、报告查看、ComparePage（双模型/双方案 delta 对比）、PerfComparePage（性能对比）、Arena
 
 ## 构建参数
 
