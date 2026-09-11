@@ -218,7 +218,77 @@ docker compose up -d     # docker-compose.yml 已配好挂载与环境变量
 
 ---
 
-## 七、数据集机制（重要，实测验证）
+## 七、被测模型服务（vLLM）启动参数
+
+EvalScope 通过 OpenAI 兼容 API 评测（`EVALSCOPE_BASE_URL` 指向 vLLM/SGLang）。**不同测试集对 vLLM 服务端有不同要求**，参数不全会导致评测失败（实测踩坑）。
+
+### 7.1 推荐启动命令（Qwen3.8-27B @ A800 实测）
+
+```bash
+docker run -d --name vllm --gpus device=1 -p 8000:8000 \
+  -v /nfsdata/models:/models \
+  -v /nfsdata/vllm_cache:/root/.cache/vllm \
+  -e HF_HOME=/tmp/hf-cache \
+  harbor.cloud.com/vllm/vllm-openai:v0.28.0 \
+  /models/Qwen3.8-27B --host 0.0.0.0 --port 8000 \
+  --served-model-name Qwen3.8-27B \
+  --enable-prefix-caching --no-enable-log-requests \
+  --gpu-memory-utilization 0.92 --max-model-len 131072 --max-num-seqs 256 --trust-remote-code \
+  --enable-auto-tool-choice --tool-call-parser qwen3_xml
+```
+
+### 7.2 各参数的作用与必要性（按测试集）
+
+| 参数 | 必要性 | 支撑的测试集 |
+|---|---|---|
+| `--enable-auto-tool-choice --tool-call-parser <parser>` | **必须**（bfcl_v3 等函数调用） | `bfcl_v3`（agent 工具调用） |
+| `--enable-prefix-caching` | 强烈建议（多请求共享前缀加速，实测显著提速） | 全部（尤其选择题多子集） |
+| `--max-model-len 131072` | 长上下文（math/bbh 长推理链） | `competition_math`/`bbh`/`agieval` |
+| `--max-num-seqs 256` | 高并发批处理 | 全部 |
+| `--trust-remote-code` | 自定义模型代码 | 全部 |
+| `--gpu-memory-utilization 0.92` | 显存利用率 | 全部 |
+
+**tool-call-parser 选择**（vLLM v0.28.0 实测支持列表）：
+- **Qwen3 系列 → `qwen3_xml`**（Qwen3 原生 XML 工具格式）或 `qwen3_coder`（代码模型）
+- Qwen2.5 工具模型 → `hermes`
+- 其他模型按官方文档选（`internlm`/`mistral`/`llama3_json` 等）
+
+> ⚠️ **实测踩坑**：vLLM 未开 `--enable-auto-tool-choice` 时，bfcl_v3 提交即失败：
+> `400 '"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set'`
+
+### 7.3 评测端注意（与 vLLM 配合）
+
+- **humaneval 代码执行**：需 EvalScope 侧 sandbox（`use_sandbox`，Docker 执行 Python），与 vLLM 无关
+- **aime24/competition_math 长推理**：27B 单条 46-73s 且打满 max_tokens，建议 limit≤2 或剔除
+- **并发批大小**：`--max-num-seqs` 给足即可，EvalScope 侧 `eval_batch_size=8` 默认即可（实测并发提升无额外收益）
+
+### 7.4 GPU 驱动 mismatch 排查（宿主机）
+
+**症状**：`nvidia-smi` 报 `Failed to initialize NVML: Driver/library version mismatch`；起新 GPU 容器报 `nvml error: driver/library version mismatch`。
+
+**原因**：GPU 驱动升级后未重启，内核模块（如 595.71）与用户态库（595.91）版本不一致。
+
+**修复**（需中断 GPU 服务，谨慎操作）：
+
+```bash
+# 1. 停所有 GPU 容器 + GPU 进程
+docker stop <gpu-container-1> <gpu-container-2>
+kill <gpu-process-pid>
+
+# 2. 卸载旧 nvidia 模块（需先无 GPU 引用）
+sudo rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia
+
+# 3. 重新加载（DKMS 自动用新版本 595.91）
+sudo modprobe nvidia && nvidia-smi   # 确认版本一致
+
+# 4. 重建 GPU 容器（7.1 命令）
+```
+
+> 重启宿主机同样可解决（更简单但影响面更大）。日常 GPU 驱动升级后应尽快重启。
+
+---
+
+## 八、数据集机制（重要，实测验证）
 
 ### 7.1 加载路径
 
